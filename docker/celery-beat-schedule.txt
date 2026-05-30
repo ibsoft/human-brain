@@ -1,0 +1,5 @@
+Configure periodic jobs for:
+consolidate session, rebuild FAISS index, detect duplicates, calculate trust scores,
+expire old memories, backup database, cleanup old snapshots, and daily memory report.
+Use celery beat or your production scheduler.
+

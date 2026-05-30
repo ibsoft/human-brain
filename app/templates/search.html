@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block page_title %}Semantic Search{% endblock %}{% block content %}
+<section class="hero-panel mb-4"><div><div class="eyebrow">Retrieval</div><h2>Agent-grade memory retrieval</h2><p>Hybrid search returns semantic scores, keyword matches, trust, assets, and correlations so an agent can answer with useful evidence.</p></div></section>
+<section class="grid-2 context-layout">
+  <div class="panel">
+    <div class="panel-heading"><h2>Search Request</h2><span>hybrid vector + keyword</span></div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">Agent</label><select id="searchAgent" class="form-select">{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-6"><label class="form-label">Workspace</label><select id="searchWorkspace" class="form-select">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-6"><label class="form-label">Top K</label><input id="searchTopK" class="form-control" type="number" value="10" min="1" max="50"></div>
+      <div class="col-md-6"><label class="form-label">Correlations</label><input id="searchCorrelationLimit" class="form-control" type="number" value="5" min="0" max="20"></div>
+      <div class="col-12"><label class="form-label">Question or task</label><textarea id="searchPrompt" class="form-control" rows="6" placeholder="Ask what the agent needs to know before answering or continuing a project"></textarea></div>
+      <div class="col-12"><button id="searchButton" class="btn btn-primary w-100" type="button"><i class="fa-solid fa-magnifying-glass"></i> Retrieve Agent Evidence</button></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-heading"><h2>Agent Evidence</h2><span id="searchCount">not run</span></div>
+    <div id="searchResults" class="search-results"></div>
+  </div>
+</section>
+<section class="panel mt-4">
+  <div class="panel-heading">
+    <h2>Full Debug JSON</h2>
+    <button id="copySearchJson" class="btn btn-sm btn-outline-info" type="button"><i class="fa-solid fa-copy"></i> Copy</button>
+  </div>
+  <pre id="searchOutput" class="output output-large"></pre>
+</section>
+{% endblock %}

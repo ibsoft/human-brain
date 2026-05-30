@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block page_title %}System Health{% endblock %}{% block content %}
+<section class="metric-grid"><div class="metric-card"><i class="fa-solid fa-database"></i><span>Database</span><strong>{{ health.database_engine }}</strong></div><div class="metric-card"><i class="fa-solid fa-magnifying-glass-chart"></i><span>FAISS</span><strong>{{ health.faiss.status }}</strong></div><div class="metric-card"><i class="fa-solid fa-video"></i><span>Vision</span><strong>{{ vision.active_model }}</strong></div></section>
+<section class="panel mt-4"><form method="post" action="{{ url_for('main.rebuild_indexes') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary"><i class="fa-solid fa-rotate"></i> Rebuild FAISS Indexes</button></form><pre class="output mt-3">{{ health }}</pre><pre class="output mt-3">{{ vision }}</pre></section>
+{% endblock %}

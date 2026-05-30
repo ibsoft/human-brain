@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block page_title %}Agent Context Builder{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Prompt-to-Context</div>
+    <h2>Preview exactly what an agent would receive</h2>
+    <p>Build a context block ranked by semantic similarity, trust, importance, recency, and memory-firewall policy.</p>
+  </div>
+</section>
+
+<section class="grid-2 context-layout">
+  <div class="panel">
+    <div class="panel-heading"><h2>Context Request</h2><span>preview mode</span></div>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Agent</label>
+        <select id="ctxAgent" class="form-select">{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Workspace</label>
+        <select id="ctxWorkspace" class="form-select">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Top K</label>
+        <input id="ctxTopK" class="form-control" value="8" type="number" min="1" max="50" placeholder="8">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Max tokens</label>
+        <input id="ctxMaxTokens" class="form-control" value="1200" type="number" min="100" max="8000" placeholder="1200">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Sensitivity</label>
+        <select id="ctxSensitivity" class="form-select"><option value="strict">Strict firewall</option><option value="permissive">Permissive</option></select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Prompt</label>
+        <textarea id="ctxPrompt" class="form-control" rows="7" placeholder="Example: What should this agent remember before helping with the deployment plan?"></textarea>
+      </div>
+      <div class="col-12">
+        <button id="ctxBuildButton" type="button" class="btn btn-primary w-100"><i class="fa-solid fa-code-branch"></i> Build Agent Context</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-heading"><h2>Context Block</h2><span id="ctxPolicyLabel">not built</span></div>
+    <div id="ctxContextBlock" class="context-block empty">Build a context preview to see injected memories here.</div>
+    <div class="panel-heading mt-4"><h2>Selected Memories</h2><span id="ctxMemoryCount">0 memories</span></div>
+    <div id="ctxMemoryList" class="context-memory-list"></div>
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-heading"><h2>Raw API Response</h2><span>debug</span></div>
+  <pre id="ctxOutput" class="output"></pre>
+</section>
+{% endblock %}

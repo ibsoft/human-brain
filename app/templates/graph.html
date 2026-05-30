@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block page_title %}Memory Graph{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Knowledge Map</div>
+    <h2>{% if focus_memory %}Correlation graph for #{{ focus_memory.id }}{% else %}Agents, workspaces, sessions, tags, and memories{% endif %}</h2>
+    <p>{% if focus_memory %}Showing only this memory, its directly correlated memories, and their local metadata nodes.{% else %}Explore how memories are connected across agent identity, workspace boundaries, sessions, memory types, and tags.{% endif %}</p>
+  </div>
+  {% if focus_memory %}
+  <div class="hero-actions"><a class="btn btn-outline-info" href="{{ url_for('main.graph') }}"><i class="fa-solid fa-diagram-project"></i> Full Graph</a></div>
+  {% endif %}
+</section>
+
+<section class="metric-grid mb-4">
+  <div class="metric-card"><i class="fa-solid fa-circle-nodes"></i><span>Nodes</span><strong id="graphNodeCount">0</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-link"></i><span>Edges</span><strong id="graphEdgeCount">0</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-brain"></i><span>Memories</span><strong>{{ memory_count }}</strong></div>
+</section>
+
+<section class="grid-2 graph-layout">
+  <div class="panel graph-panel">
+    <div class="panel-heading">
+      <h2>Interactive Graph</h2>
+      <select id="graphFilter" class="form-select graph-filter">
+        <option value="">All nodes</option>
+        <option value="memory">Memories</option>
+        <option value="agent">Agents</option>
+        <option value="workspace">Workspaces</option>
+        <option value="session">Sessions</option>
+        <option value="tag">Tags</option>
+        <option value="type">Memory types</option>
+      </select>
+    </div>
+    <canvas id="memoryGraphCanvas" height="620"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-heading"><h2>Selected Node</h2><span>click graph</span></div>
+    <div id="graphDetails" class="graph-details empty">Select a node to inspect its relationships.</div>
+    <div class="panel-heading mt-4"><h2>Legend</h2><span>node types</span></div>
+    <div class="legend-list">
+      <span><b class="legend-memory"></b> Memory</span>
+      <span><b class="legend-agent"></b> Agent</span>
+      <span><b class="legend-workspace"></b> Workspace</span>
+      <span><b class="legend-tag"></b> Tag</span>
+      <span><b class="legend-session"></b> Session</span>
+    </div>
+  </div>
+</section>
+
+<script id="memoryGraphData" type="application/json">{{ graph_data|tojson }}</script>
+{% endblock %}

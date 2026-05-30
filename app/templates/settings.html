@@ -1,0 +1,41 @@
+{% extends "base.html" %}{% block page_title %}Settings{% endblock %}{% block content %}
+<form class="panel" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <h2>Privacy & Memory Policy</h2>
+      {% for key,label in [('local_first_privacy_mode','Local-first privacy mode'),('auto_store_consolidated_memory','Auto-store consolidated memories'),('block_high','Block high sensitivity in context'),('block_secret','Block secret memories in context'),('allow_sensitive_context_for_admin','Allow admin sensitive context override')] %}
+      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) or settings.get('sensitivity_firewall',{}).get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
+      {% endfor %}
+      <label class="form-label mt-3">Retention days</label><input class="form-control" type="number" name="retention_days" value="{{ settings.retention_days }}" placeholder="365">
+      <h2 class="mt-4">Embedding Models</h2>
+      <label class="form-label">Active embedding model</label>
+      <select class="form-select" name="embedding_model">
+        {% for model in settings.embedding_models %}
+        <option value="{{ model }}" {% if settings.embedding_model == model %}selected{% endif %}>{{ model }}</option>
+        {% endfor %}
+      </select>
+      <label class="form-label mt-3">Ollama base URL</label><input class="form-control" name="ollama_base_url" value="{{ settings.ollama_base_url }}" placeholder="http://localhost:11434">
+      <label class="form-label mt-3">Available embedding models, one per line</label><textarea class="form-control" name="embedding_models" rows="6" placeholder="sentence-transformers/all-MiniLM-L6-v2&#10;ollama:paraphrase-multilingual&#10;hash">{{ settings.embedding_models|join('\n') }}</textarea>
+      <h2 class="mt-4">Backup Schedule</h2>
+      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="backup_schedule_enabled" {% if settings.backup_schedule.enabled %}checked{% endif %}><label class="form-check-label">Enable scheduled backups</label></div>
+      <label class="form-label mt-2">Frequency</label><select class="form-select" name="backup_frequency"><option value="daily" {% if settings.backup_schedule.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.backup_schedule.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
+      <label class="form-label mt-2">Time</label><input class="form-control" name="backup_time" value="{{ settings.backup_schedule.time }}" placeholder="02:00">
+      <label class="form-label mt-2">Keep last</label><input class="form-control" type="number" name="backup_keep_last" value="{{ settings.backup_schedule.keep_last }}" placeholder="7">
+    </div>
+    <div class="col-lg-6">
+      <h2>Vision Models</h2>
+      {% for key,label in [('camera_enabled','Enable camera'),('snapshot_storage_enabled','Allow snapshot storage'),('vision_auto_save','Auto-save vision memories')] %}
+      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
+      {% endfor %}
+      <label class="form-label mt-3">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics">
+      <label class="form-label mt-3">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0">
+      <label class="form-label mt-3">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select>
+      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="yolo26x.pt">
+      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="yolo26x.pt&#10;yolov8n.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
+    </div>
+  </div>
+  <button class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
+</form>
+<section class="panel mt-4"><h2>Effective Settings</h2><pre class="output">{{ settings_json }}</pre></section>
+{% endblock %}

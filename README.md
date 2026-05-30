@@ -1,2 +1,346 @@
-# human-brain
-Human Brain for AI Agents
+# Human-Brain
+
+`Human-Brain` is a local/private long-term memory platform for AI agents. It stores short-term, episodic, long-term, task, project, preference, security-sensitive, archived, deleted/forgotten, and optional vision memories with workspace isolation, API-key controlled agent access, audit trails, semantic retrieval, session consolidation, and configurable privacy controls.
+
+## Architecture
+
+- Flask app factory with SQLAlchemy models, Alembic migrations, Flask-Login, CSRF, secure headers, and rate limiting.
+- PostgreSQL in production; SQLite is suitable only for local development.
+- FAISS indexes are persisted per workspace in `faiss_indexes/`. Each index uses normalized embeddings with `IndexIDMap2(IndexFlatIP)`, so FAISS returns stable `vector_id` values that are mapped through the `memory_vectors` table.
+- `sentence-transformers` provides embeddings, with a deterministic fallback for constrained development environments.
+- Redis + Celery run consolidation, FAISS rebuild, duplicate detection, trust scoring, expiration, backup, snapshot cleanup, and reports.
+- Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `yolo26x.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
+- Memory correlation creates workspace-scoped graph edges between related memories. See `docs/MEMORY_CORRELATION.md`.
+- Model operation guidance lives in `docs/models/SKILL.md`.
+- Agent API protocol and retrieval behavior are documented in `docs/AGENT_API_PROTOCOL.md`.
+- A ready-to-use agent skill lives in `docs/agents/SKILL.md`.
+
+## Local Setup
+
+```bash
+cd human-brain
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-core.txt
+# Optional, for local embeddings and YOLO vision:
+pip install -r requirements-ml.txt
+cp .env.local.example .env
+export FLASK_ENV=development
+flask --app manage:app db init
+flask --app manage:app db migrate -m "initial schema"
+flask --app manage:app db upgrade
+python manage.py seed-demo-data
+python manage.py
+```
+
+Open `http://localhost:5000`.
+On first launch, `/login` redirects to `/setup` so you can create the first admin account in the browser.
+
+## Docker Compose
+
+```bash
+cd human-brain
+cp .env.example .env
+docker compose up --build
+docker compose exec web flask --app manage:app db upgrade
+docker compose exec web python manage.py seed-demo-data
+```
+
+Optional nginx profile:
+
+```bash
+docker compose --profile nginx up --build
+```
+
+## Settings Page
+
+Operational settings are managed in the UI at `/settings`:
+
+- Local-first privacy mode
+- Auto-store consolidated memories
+- Memory Firewall for high/secret sensitivity context injection
+- Active embedding model and allowed embedding model list
+- Ollama base URL for local embedding models
+- Camera enablement
+- Snapshot storage
+- Vision auto-save
+- Active vision model
+- Available vision model registry
+- Retention days
+
+Environment variables are for secrets, deployment defaults, database/Redis URLs, and filesystem paths.
+
+## API Authentication
+
+Agents authenticate with:
+
+```http
+X-API-Key: hb_...
+```
+
+API keys are hashed in the database. Raw keys are only shown at creation.
+
+## Agent API Example
+
+After `python manage.py seed-demo-data`, copy the printed demo API key.
+
+Store memory:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/memory/add \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: hb_REPLACE_ME" \
+  -d '{
+    "agent_id": 1,
+    "workspace_id": 1,
+    "title": "Deployment choice",
+    "content": "The project uses PostgreSQL in production and SQLite only for local development.",
+    "memory_type": "technical_notes",
+    "tags": ["deployment", "database"],
+    "importance_score": 0.8,
+    "trust_score": 0.9,
+    "confirmed": true
+  }'
+```
+
+Create and consolidate a session:
+
+```bash
+SESSION_ID=$(curl -s -X POST http://localhost:5000/api/v1/session/start \
+  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+  -d '{"agent_id":1,"workspace_id":1,"title":"Planning"}' | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+
+curl -X POST http://localhost:5000/api/v1/session/add-message \
+  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+  -d "{\"session_id\":$SESSION_ID,\"role\":\"user\",\"content\":\"Decision: use Redis as the Celery broker. Task: rebuild FAISS nightly.\"}"
+
+curl -X POST http://localhost:5000/api/v1/session/consolidate \
+  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+  -d "{\"session_id\":$SESSION_ID}"
+```
+
+Retrieve context for an AI agent:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/context/build \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: hb_REPLACE_ME" \
+  -d '{
+    "agent_id": 1,
+    "workspace_id": 1,
+    "prompt": "How should I deploy the memory system?",
+    "session_id": "chat-123",
+    "top_k": 8,
+    "memory_types": ["technical_notes", "decisions", "tasks"],
+    "max_tokens": 1200,
+    "sensitivity_policy": "strict"
+  }'
+```
+
+## Semantic Vector Search
+
+Human-Brain uses FAISS as the primary retrieval path for semantic memory search. Metadata stays in PostgreSQL or SQLite; FAISS stores only vectors.
+
+Search flow:
+
+1. The query is embedded with the same configured `EMBEDDING_MODEL` used for stored memories.
+2. The query vector is normalized.
+3. The workspace FAISS index is searched with expanded `top_k`.
+4. FAISS returns stable `vector_id` values from `IndexIDMap2`.
+5. `memory_vectors` maps `vector_id` back to `memory_id`, `workspace_id`, model name, dimension, hashes, and index name.
+6. The database applies workspace, agent, archive/delete, sensitivity, and type filters.
+7. Results return `semantic_score`, `vector_score`, `vector.vector_id`, `vector.embedding_model`, `vector.vector_dim`, `vector.raw_score`, and timing.
+
+Scoring is intentionally vector-first:
+
+```text
+overall_score =
+  semantic_score * 0.60 +
+  keyword_score  * 0.15 +
+  trust_score    * 0.10 +
+  importance     * 0.10 +
+  recency_score  * 0.05
+```
+
+Keyword search is used as a fallback only when FAISS returns no valid semantic candidates. This prevents keyword overlap and old correlations from dominating agent context.
+
+After upgrading an existing installation, run:
+
+```bash
+flask --app manage:app db upgrade
+python manage.py rebuild-index
+python manage.py vector-health
+python manage.py test-search "where can I find unixfor online"
+```
+
+The search response includes timing:
+
+```json
+{
+  "timing": {
+    "embedding_ms": 3.21,
+    "faiss_load_ms": 0.03,
+    "faiss_search_ms": 0.12,
+    "vector_map_ms": 0.18,
+    "db_lookup_ms": 2.14,
+    "correlation_ms": 0,
+    "rerank_ms": 0.09,
+    "serialization_ms": 0.42,
+    "total_ms": 6.31,
+    "elapsed_ms": 6.31,
+    "result_count": 3,
+    "semantic": true,
+    "mode": "agent"
+  }
+}
+```
+
+For fast agent retrieval, use compact GET search:
+
+```bash
+curl "http://localhost:5000/api/v1/search?workspace_id=1&query=where%20can%20I%20find%20unixfor%20online&mode=agent&compact=true" \
+  -H "X-API-Key: hb_REPLACE_ME"
+```
+
+Compact mode returns only the fields an agent needs:
+
+```json
+{
+  "memory_id": 106,
+  "title": "Unixfor Company Information - chunk 2",
+  "content": "For more detailed information...",
+  "semantic_score": 0.8383,
+  "vector_score": 0.8383,
+  "trust_score": 0.5
+}
+```
+
+Search modes:
+
+- `mode=agent`: compact agent payload; no assets, correlations, hashes, audit fields, or timestamps unless explicitly requested.
+- `mode=ui`: normal UI payload.
+- `mode=debug`: full payload with vectors and correlations.
+
+Warm caches after deployment or rebuild:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/vector/warmup \
+  -H "X-API-Key: hb_REPLACE_ME"
+```
+
+Optional startup warmup:
+
+```env
+VECTOR_STARTUP_WARMUP=true
+VECTOR_AUTO_REPAIR_ON_WARMUP=true
+```
+
+Vector diagnostics:
+
+```bash
+curl http://localhost:5000/api/v1/vector/health \
+  -H "X-API-Key: hb_REPLACE_ME"
+```
+
+The endpoint reports loaded indexes, embedding model, vector dimension, FAISS index type, total vectors, orphan database vectors, missing FAISS vectors, memories without vectors, and last rebuild time.
+
+Performance diagnostics:
+
+```bash
+curl http://localhost:5000/api/v1/performance \
+  -H "X-API-Key: hb_REPLACE_ME"
+```
+
+Run local benchmarks:
+
+```bash
+python manage.py benchmark-search "where can I find unixfor online" --queries 100
+python manage.py benchmark-search "where can I find unixfor online" --queries 1000
+python manage.py benchmark-search "where can I find unixfor online" --queries 5000
+```
+
+The benchmark outputs average latency, p95, p99, and queries per second.
+
+## Production Notes
+
+- Set a strong `SECRET_KEY`.
+- Use PostgreSQL and Redis.
+- Keep `CORS_ENABLED=false` unless a trusted integration requires it.
+- Terminate HTTPS at nginx or another reverse proxy, and set `SESSION_COOKIE_SECURE=true`.
+- Run `gunicorn -c gunicorn.conf.py manage:app`.
+- Run workers with `celery -A manage.celery worker --loglevel=INFO`.
+- Never log raw API keys, passwords, or tokens.
+
+## PostgreSQL, Redis, Celery Production Setup
+
+Use PostgreSQL for production data and Redis for Celery.
+
+```env
+DATABASE_URL=postgresql+psycopg://human_brain:password@localhost:5432/human_brain
+REDIS_URL=redis://localhost:6379/2
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+SESSION_COOKIE_SECURE=true
+CORS_ENABLED=false
+```
+
+Install and migrate:
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-core.txt
+pip install -r requirements-ml.txt
+flask --app manage:app db upgrade
+```
+
+Run web:
+
+```bash
+gunicorn -c gunicorn.conf.py manage:app
+```
+
+Run workers:
+
+```bash
+celery -A manage.celery worker --loglevel=INFO
+celery -A manage.celery beat --loglevel=INFO
+```
+
+See `docs/AGENT_API_PROTOCOL.md` for the complete agent retrieval and correlation protocol.
+
+## Backup and Restore
+
+SQLite development:
+
+```bash
+python manage.py backup
+python manage.py restore backups/human_brain_YYYYMMDDHHMMSS.sqlite3
+```
+
+PostgreSQL production:
+
+```bash
+pg_dump "$DATABASE_URL" > backups/human_brain.sql
+psql "$DATABASE_URL" < backups/human_brain.sql
+```
+
+## YOLO Setup
+
+Vision settings are controlled in `/settings`. Add model names or local paths to the available model list, set the active model, enable camera access, and decide whether snapshots are allowed. Metadata is stored by default; frames are not persisted unless snapshot storage is enabled.
+
+Check camera indexes:
+
+```bash
+flask --app manage:app camera-check --max-index 5
+```
+
+## Troubleshooting
+
+- Missing FAISS index: run `python manage.py rebuild-index`.
+- Search shows `semantic_score=0` or `vector_id=null`: run `flask --app manage:app db upgrade`, then `python manage.py rebuild-index`, then check `python manage.py vector-health`.
+- Search returns no results while `faiss_hits` is nonzero: the workspace index may be stale. Keep `VECTOR_AUTO_REPAIR_ON_WARMUP=true`, restart the app, or run `python manage.py rebuild-index`.
+- Bad or outdated correlation edges: run `flask --app manage:app rebuild-correlations`.
+- Celery jobs stuck: confirm Redis is reachable and workers are running.
+- Vision disabled: enable camera use on Settings.
+- PostgreSQL migrations: run `flask --app manage:app db migrate` and `flask --app manage:app db upgrade`.

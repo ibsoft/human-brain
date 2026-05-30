@@ -1,0 +1,4 @@
+sentence-transformers==3.0.1
+opencv-python-headless==4.10.0.84
+ultralytics==8.2.76
+

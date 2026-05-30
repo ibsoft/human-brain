@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block page_title %}Agents{% endblock %}{% block content %}
+<section class="panel mb-4"><div class="panel-heading"><h2>Create Agent</h2><span>Assign initial workspace</span></div><form method="post" class="row g-3"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="col-md-3"><input class="form-control" name="name" placeholder="Agent name" required></div><div class="col-md-5"><input class="form-control" name="description" placeholder="Description"></div><div class="col-md-3"><select class="form-select" name="workspace_id">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></div><div class="col-md-1"><button class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i></button></div></form></section>
+<section class="card-grid">{% for a in agents %}<div class="panel"><div class="panel-heading"><h2><i class="fa-solid fa-robot"></i> {{ a.name }}</h2><span>{{ "active" if a.active else "inactive" }}</span></div><p>{{ a.description }}</p>
+<form method="post" action="{{ url_for('main.edit_agent', agent_id=a.id) }}" class="row g-2 mb-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="col-md-6"><input class="form-control form-control-sm" name="name" value="{{ a.name }}" placeholder="Name"></div>
+  <div class="col-md-6"><select class="form-select form-select-sm" name="workspace_id">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></div>
+  <div class="col-12"><input class="form-control form-control-sm" name="description" value="{{ a.description or '' }}" placeholder="Description"></div>
+  <div class="col-md-4"><select class="form-select form-select-sm" name="memory_permission"><option value="rw">memory rw</option><option value="read">memory read</option><option value="none">memory none</option></select></div>
+  <div class="col-md-4"><select class="form-select form-select-sm" name="context_permission"><option value="read">context read</option><option value="none">context none</option></select></div>
+  <div class="col-md-4"><select class="form-select form-select-sm" name="memory_scope"><option value="workspace">workspace scope</option><option value="agent">agent scope</option></select></div>
+  <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" name="active" type="checkbox" {% if a.active %}checked{% endif %}><label class="form-check-label">Active</label></div></div>
+  <div class="col-12"><button class="btn btn-sm btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Agent</button></div>
+</form>
+<div class="d-flex gap-2"><a class="btn btn-sm btn-outline-info" href="{{ url_for('main.agent_passport', agent_id=a.id) }}">Passport</a><form method="post" action="{{ url_for('main.delete_agent', agent_id=a.id) }}" onsubmit="return confirm('Delete this agent and related records?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i></button></form></div></div>{% endfor %}</section>{% endblock %}

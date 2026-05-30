@@ -1,0 +1,39 @@
+{% extends "base.html" %}{% block page_title %}Duplicate Detector{% endblock %}{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Memory Hygiene</div>
+    <h2>Duplicate and near-duplicate review</h2>
+    <p>Exact content hashes are prevented at write time, so this page also groups similar titles and content signatures for cleanup.</p>
+  </div>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>Potential Duplicate Groups</h2><span>{{ groups|length }} groups</span></div>
+  {% if not groups %}<p class="text-secondary">No exact or near-duplicate groups found.</p>{% endif %}
+  {% for group in groups %}
+  <div class="duplicate-group mb-4">
+    <div class="panel-heading"><h2>Group {{ loop.index }}</h2><span>{{ group.memories|length }} memories</span></div>
+    <div class="table-responsive">
+      <table class="table table-dark table-hover align-middle">
+        <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>Trust</th><th>Sensitivity</th><th>Reason</th><th></th></tr></thead>
+        <tbody>
+          {% for memory in group.memories %}
+          <tr>
+            <td>{{ memory.id }}</td>
+            <td>{{ memory.title }}</td>
+            <td><span class="badge text-bg-secondary">{{ memory.memory_type }}</span></td>
+            <td><span class="trust">{{ "%.2f"|format(memory.trust_score) }}</span></td>
+            <td><span class="badge text-bg-{{ 'danger' if memory.sensitivity_level in ['high','secret'] else 'success' }}">{{ memory.sensitivity_level }}</span></td>
+            <td><span class="badge text-bg-dark border">{{ group.reason }}</span></td>
+            <td class="text-end row-actions">
+              <form class="d-inline" method="post" action="{{ url_for('main.web_archive_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-warning" title="Archive"><i class="fa-solid fa-box-archive"></i></button></form>
+              <form class="d-inline" method="post" action="{{ url_for('main.web_delete_memory', memory_id=memory.id) }}" onsubmit="return confirm('Permanently delete this memory?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button></form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

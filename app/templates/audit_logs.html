@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block page_title %}Audit Logs{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Auditability</div>
+    <h2>Trace memory, auth, key, backup, and agent operations</h2>
+    <p>Audit entries exclude secrets and provide actor, target, network, and metadata context for review.</p>
+  </div>
+</section>
+
+<section class="metric-grid mb-4">
+  <div class="metric-card"><i class="fa-solid fa-clipboard-list"></i><span>Total logs</span><strong>{{ total }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-user-shield"></i><span>User events</span><strong>{{ actor_counts.get('user', 0) }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-robot"></i><span>Agent events</span><strong>{{ actor_counts.get('agent', 0) }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-gears"></i><span>System events</span><strong>{{ actor_counts.get('system', 0) }}</strong></div>
+</section>
+
+<section class="grid-2 mb-4">
+  <div class="panel">
+    <div class="panel-heading"><h2>Filters</h2><span>{{ logs|length }} shown</span></div>
+    <form method="get" class="row g-3">
+      <div class="col-md-5"><input class="form-control" name="action" value="{{ filters.action }}" placeholder="Filter by action, e.g. memory.created"></div>
+      <div class="col-md-4"><select class="form-select" name="actor_type"><option value="">All actors</option>{% for actor in ['user','agent','worker','system'] %}<option value="{{ actor }}" {% if filters.actor_type == actor %}selected{% endif %}>{{ actor }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><button class="btn btn-primary w-100"><i class="fa-solid fa-filter"></i> Filter</button></div>
+    </form>
+  </div>
+  <div class="panel">
+    <div class="panel-heading"><h2>Top Actions</h2><span>last 1000</span></div>
+    <div class="tag-cloud">{% for action,count in action_counts %}<span>{{ action }} <b>{{ count }}</b></span>{% endfor %}</div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><h2>Event Stream</h2><span>newest first</span></div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover align-middle">
+      <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Network</th><th>Metadata</th><th></th></tr></thead>
+      <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.created_at|dt }}</td>
+        <td><span class="badge text-bg-secondary">{{ log.actor_type }}</span> {{ log.actor_id or "" }}</td>
+        <td><span class="audit-action">{{ log.action }}</span></td>
+        <td>{{ log.target_type or "" }} {% if log.target_id %}<span class="text-secondary">#{{ log.target_id }}</span>{% endif %}</td>
+        <td><span class="text-secondary">{{ log.ip_address or "" }}</span></td>
+        <td><code class="audit-meta">{{ log.meta }}</code></td>
+        <td class="text-end">
+          <form method="post" action="{{ url_for('main.delete_audit_log', log_id=log.id) }}" onsubmit="return confirm('Delete this audit log entry?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-secondary">No audit logs match the current filter.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

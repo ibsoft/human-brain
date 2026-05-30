@@ -1,0 +1,70 @@
+<div class="table-responsive">
+<table class="table table-dark table-hover align-middle">
+  <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>Tags</th><th>Trust</th><th>Sensitivity</th><th>Stored</th><th></th></tr></thead>
+  <tbody>
+  {% for memory in memories or recent %}
+  <tr class="memory-row"
+      data-id="{{ memory.id }}"
+      data-title="{{ memory.title|e }}"
+      data-content="{{ memory.content|e }}"
+      data-summary="{{ (memory.summary or '')|e }}"
+      data-memory-type="{{ memory.memory_type|e }}"
+      data-tags="{{ (memory.tags or [])|join(', ')|e }}"
+      data-importance="{{ memory.importance_score }}"
+      data-trust="{{ memory.trust_score }}"
+      data-sensitivity="{{ memory.sensitivity_level|e }}"
+      data-visibility="{{ memory.visibility|e }}"
+      data-confirmed="{{ 'true' if memory.confirmed else 'false' }}">
+    <td>{{ memory.id }}</td><td>{{ memory.title }}</td><td><span class="badge text-bg-secondary">{{ memory.memory_type }}</span></td>
+    <td>{% for tag in memory.tags or [] %}<span class="badge text-bg-dark border">{{ tag }}</span> {% endfor %}</td>
+    <td><span class="trust">{{ "%.2f"|format(memory.trust_score) }}</span></td>
+    <td><span class="badge text-bg-{{ 'danger' if memory.sensitivity_level in ['high','secret'] else 'success' }}">{{ memory.sensitivity_level }}</span></td>
+    <td>{{ memory.created_at|dt }}</td>
+    <td class="text-end row-actions">
+      {% if memory.pending_approval %}
+      <form class="d-inline" method="post" action="{{ url_for('main.web_confirm_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-success" title="Confirm"><i class="fa-solid fa-check"></i></button></form>
+      {% endif %}
+      <form class="d-inline" method="post" action="{{ url_for('main.web_archive_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-warning" title="Archive"><i class="fa-solid fa-box-archive"></i></button></form>
+      <form class="d-inline" method="post" action="{{ url_for('main.web_forget_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" title="Forget"><i class="fa-solid fa-eraser"></i></button></form>
+      <form class="d-inline" method="post" action="{{ url_for('main.web_delete_memory', memory_id=memory.id) }}" onsubmit="return confirm('Permanently delete this memory?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button></form>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="modal fade" id="memoryEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content bg-dark text-light">
+      <form id="memoryEditForm" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header border-secondary"><h5 class="modal-title">Memory Detail / Edit</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8"><label class="form-label">Title</label><input id="memEditTitle" class="form-control" name="title" placeholder="Memory title" required></div>
+            <div class="col-md-4"><label class="form-label">Type</label><input id="memEditType" class="form-control" name="memory_type" placeholder="long-term"></div>
+            <div class="col-12"><label class="form-label">Content</label><textarea id="memEditContent" class="form-control" name="content" rows="7" placeholder="Memory content" required></textarea></div>
+            <div class="col-12"><label class="form-label">Summary</label><textarea id="memEditSummary" class="form-control" name="summary" rows="3" placeholder="Optional summary"></textarea></div>
+            <div class="col-md-4"><label class="form-label">Tags</label><input id="memEditTags" class="form-control" name="tags" placeholder="tag1, tag2"></div>
+            <div class="col-md-2"><label class="form-label">Importance</label><input id="memEditImportance" class="form-control" name="importance_score" type="number" min="0" max="1" step="0.1"></div>
+            <div class="col-md-2"><label class="form-label">Trust</label><input id="memEditTrust" class="form-control" name="trust_score" type="number" min="0" max="1" step="0.1"></div>
+            <div class="col-md-2"><label class="form-label">Sensitivity</label><select id="memEditSensitivity" class="form-select" name="sensitivity_level"><option>normal</option><option>high</option><option>secret</option></select></div>
+            <div class="col-md-2"><label class="form-label">Visibility</label><input id="memEditVisibility" class="form-control" name="visibility" placeholder="workspace"></div>
+            <div class="col-12"><div class="form-check form-switch"><input id="memEditConfirmed" class="form-check-input" name="confirmed" type="checkbox"><label class="form-check-label">Confirmed memory</label></div></div>
+            <div class="col-12">
+              <div class="memory-correlation-panel">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                  <h6 class="m-0"><i class="fa-solid fa-diagram-project"></i> Correlations</h6>
+                  <a id="memCorrelationGraphLink" class="btn btn-sm btn-outline-info" href="{{ url_for('main.graph') }}"><i class="fa-solid fa-up-right-from-square"></i> Graph</a>
+                </div>
+                <div id="memCorrelationList" class="memory-correlation-list text-secondary">Loading correlations...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary"><button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button><button class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Update Memory</button></div>
+      </form>
+    </div>
+  </div>
+</div>

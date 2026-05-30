@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block page_title %}Workspaces{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Workspace Isolation</div>
+    <h2>Separate agent memory domains</h2>
+    <p>Each workspace owns its memories, sessions, FAISS index partition, and agent access rules.</p>
+  </div>
+</section>
+
+<section class="panel mb-4">
+  <div class="panel-heading"><h2>Create Workspace</h2><span>private by default</span></div>
+  <form method="post" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-4"><label class="form-label">Name</label><input class="form-control" name="name" placeholder="Research Lab" required></div>
+    <div class="col-md-5"><label class="form-label">Description</label><input class="form-control" name="description" placeholder="Local memory space for a project or team"></div>
+    <div class="col-md-2"><label class="form-label">Privacy</label><div class="form-check form-switch mt-2"><input class="form-check-input" name="local_first_privacy" type="checkbox" checked><label class="form-check-label">Local-first</label></div></div>
+    <div class="col-md-1"><label class="form-label">&nbsp;</label><button class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i></button></div>
+  </form>
+</section>
+
+<section class="workspace-grid">
+  {% for item in workspace_cards %}
+  {% set w = item.workspace %}
+  <div class="panel workspace-card">
+    <div class="panel-heading"><h2>{{ w.name }}</h2><span class="badge text-bg-success">isolated</span></div>
+    <p class="text-secondary">{{ w.description or "No description yet." }}</p>
+    <div class="workspace-stats">
+      <span><b>{{ item.memories }}</b> memories</span>
+      <span><b>{{ item.agents }}</b> agents</span>
+      <span><b>{{ item.sessions }}</b> sessions</span>
+      <span><b>{{ item.sensitive }}</b> sensitive</span>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <a class="btn btn-outline-info" href="{{ url_for('main.memories') }}">Memories</a>
+      <form method="post" action="{{ url_for('main.delete_workspace', workspace_id=w.id) }}" onsubmit="return confirm('Delete this workspace and all related records?')">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-danger"><i class="fa-solid fa-trash"></i></button>
+      </form>
+    </div>
+  </div>
+  {% else %}
+  <div class="panel"><p class="text-secondary mb-0">No workspaces yet.</p></div>
+  {% endfor %}
+</section>
+{% endblock %}

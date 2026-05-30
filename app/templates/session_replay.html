@@ -1,0 +1,22 @@
+{% extends "base.html" %}{% block page_title %}Memory Replay{% endblock %}{% block content %}
+<section class="panel mb-4">
+  <div class="d-flex justify-content-between align-items-start gap-3">
+    <div><h2>{{ session.title }}</h2><p class="text-secondary">Session #{{ session.id }} · {{ session.status }} · {{ session.messages|length }} messages</p></div>
+    <form method="post" action="{{ url_for('main.web_consolidate_session', session_id=session.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Consolidate</button></form>
+  </div>
+</section>
+<section class="panel mb-4">
+  <h2>Add Message</h2>
+  <form method="post" action="{{ url_for('main.web_add_session_message', session_id=session.id) }}" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-2"><select class="form-select" name="role"><option>user</option><option>assistant</option><option>system</option><option>tool</option></select></div>
+    <div class="col-md-8"><input class="form-control" name="content" placeholder="Message content" required></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i></button></div>
+  </form>
+</section>
+<section class="timeline">
+  {% for message in session.messages %}
+  <div class="timeline-item"><span>{{ message.created_at|dt }} · {{ message.role }}</span><p class="mb-0">{{ message.content }}</p></div>
+  {% endfor %}
+</section>
+{% endblock %}

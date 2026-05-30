@@ -1,0 +1,53 @@
+services:
+  web:
+    build: .
+    env_file: .env
+    command: gunicorn -c gunicorn.conf.py manage:app
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./faiss_indexes:/app/faiss_indexes
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      - postgres
+      - redis
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: human_brain
+      POSTGRES_PASSWORD: human_brain
+      POSTGRES_DB: human_brain
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+  celery-worker:
+    build: .
+    env_file: .env
+    command: celery -A manage.celery worker --loglevel=INFO
+    volumes:
+      - ./faiss_indexes:/app/faiss_indexes
+      - ./uploads:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+  celery-beat:
+    build: .
+    env_file: .env
+    command: celery -A manage.celery beat --loglevel=INFO
+    depends_on:
+      - postgres
+      - redis
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["nginx"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx.conf.example:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+volumes:
+  postgres_data:
+

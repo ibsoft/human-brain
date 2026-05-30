@@ -1,0 +1,14 @@
+[Unit]
+Description=human-brain gunicorn service
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/human-brain
+EnvironmentFile=/opt/human-brain/.env
+ExecStart=/opt/human-brain/.venv/bin/gunicorn -c gunicorn.conf.py manage:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,12 @@
+{% extends "base.html" %}{% block page_title %}Vision{% endblock %}{% block content %}
+<section class="panel">
+  <div class="alert alert-warning"><i class="fa-solid fa-triangle-exclamation"></i> Camera access, camera index, capture API, snapshots, and model selection are controlled on the Settings page.</div>
+  <div class="row g-4">
+    <div class="col-lg-8"><div class="camera-frame"><img src="{{ url_for('vision.vision_stream') }}" alt="Local vision stream"></div></div>
+    <div class="col-lg-4">
+      <h2>Vision Status</h2><pre class="output">{{ status }}</pre>
+      <a class="btn btn-outline-info" href="{{ url_for('main.settings') }}"><i class="fa-solid fa-sliders"></i> Vision Settings</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

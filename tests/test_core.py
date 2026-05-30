@@ -1,0 +1,379 @@
+from app.extensions import db
+from app.models import AuditLog, Memory, User, Workspace
+from app.services.backup_service import BackupService
+from app.services.correlation_service import CorrelationService
+from app.workers.tasks import consolidate_session_task
+
+
+def test_auth_login(client):
+    res = client.post("/login", data={"email": "admin@example.com", "password": "password"}, follow_redirects=True)
+    assert res.status_code == 200
+
+
+def test_first_run_setup_creates_admin(client, app):
+    with app.app_context():
+        db.session.expunge_all()
+        User.query.delete()
+        db.session.commit()
+        db.session.expunge_all()
+    res = client.get("/login")
+    assert res.status_code == 302
+    assert "/setup" in res.headers["Location"]
+    res = client.post(
+        "/setup",
+        data={
+            "name": "First Admin",
+            "email": "first@example.com",
+            "password": "long-secure-password",
+            "confirm_password": "long-secure-password",
+        },
+        follow_redirects=False,
+    )
+    assert res.status_code == 302
+    with app.app_context():
+        admin = User.query.filter_by(email="first@example.com").first()
+        assert admin is not None
+        assert admin.role == "admin"
+
+
+def test_api_key_required(client):
+    res = client.post("/api/v1/memory/add", json={})
+    assert res.status_code == 401
+
+
+def test_web_admin_create_workspace_agent_and_key(client):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    workspace = client.post("/workspaces", data={"name": "UI Workspace", "description": "Created from UI"}, follow_redirects=True)
+    assert workspace.status_code == 200
+    agent = client.post("/agents", data={"name": "UI Agent", "description": "Created from UI", "workspace_id": "1"}, follow_redirects=True)
+    assert agent.status_code == 200
+    key = client.post("/api-keys", data={"agent_id": "1", "name": "UI key"}, follow_redirects=True)
+    assert key.status_code == 200
+
+
+def test_viewer_cannot_create_agent(client, app):
+    with app.app_context():
+        admin = User.query.filter_by(email="admin@example.com").first()
+        admin.role = "viewer"
+        db.session.commit()
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post("/agents", data={"name": "Blocked"}, follow_redirects=False)
+    assert res.status_code == 403
+
+
+def test_backup_and_agent_export(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    backup = client.post("/backups/create", follow_redirects=True)
+    assert backup.status_code == 200
+    with app.app_context():
+        backups = BackupService().list_backups()
+        assert backups
+        assert backups[0].suffix == ".zip"
+    export = client.get(f"/agents/{app.config['TEST_AGENT_ID']}/export")
+    assert export.status_code == 200
+    assert "attachment" in export.headers.get("Content-Disposition", "")
+
+
+def test_restore_zip_backup_and_delete_memory(client, app, api_headers):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    with app.app_context():
+        backup_path = BackupService().create_backup()["path"]
+    with open(backup_path, "rb") as handle:
+        restore = client.post(
+            "/backups/restore",
+            data={"backup": (handle, "restore.zip")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+    assert restore.status_code == 200
+    payload = {
+        "agent_id": app.config["TEST_AGENT_ID"],
+        "workspace_id": app.config["TEST_WORKSPACE_ID"],
+        "content": "Delete me permanently.",
+        "memory_type": "long-term",
+    }
+    memory_id = client.post("/api/v1/memory/add", json=payload, headers=api_headers).get_json()["memory"]["id"]
+    deleted = client.post(f"/memories/{memory_id}/delete-hard", follow_redirects=True)
+    assert deleted.status_code == 200
+    with app.app_context():
+        assert db.session.get(Memory, memory_id) is None
+
+
+def test_memory_add_search_delete(client, app, api_headers):
+    payload = {
+        "agent_id": app.config["TEST_AGENT_ID"],
+        "workspace_id": app.config["TEST_WORKSPACE_ID"],
+        "content": "The production database uses PostgreSQL.",
+        "memory_type": "technical_notes",
+        "confirmed": True,
+    }
+    add = client.post("/api/v1/memory/add", json=payload, headers=api_headers)
+    assert add.status_code == 201
+    memory_id = add.get_json()["memory"]["id"]
+    search = client.post("/api/v1/memory/search", json={**payload, "query": "database"}, headers=api_headers)
+    assert search.status_code == 200
+    delete = client.post("/api/v1/memory/delete", json={**payload, "id": memory_id}, headers=api_headers)
+    assert delete.status_code == 200
+
+
+def test_web_semantic_search_returns_memory(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "Production deployments use PostgreSQL for the database.", "memory_type": "technical_notes", "confirmed": True},
+        headers=api_headers,
+    )
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post("/web/search", json={**base, "query": "production database", "top_k": 10})
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["results"]
+    assert "PostgreSQL" in payload["results"][0]["memory"]["content"]
+
+
+def test_memory_correlation_service(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    first = client.post("/api/v1/memory/add", json={**base, "content": "Apple detected by YOLO in kitchen.", "memory_type": "vision", "tags": ["apple", "vision"]}, headers=api_headers).get_json()["memory"]["id"]
+    second = client.post("/api/v1/memory/add", json={**base, "content": "User prefers apples for snacks.", "memory_type": "preferences", "tags": ["apple", "preference"]}, headers=api_headers).get_json()["memory"]["id"]
+    with app.app_context():
+        correlations = CorrelationService().for_memory(first)
+        assert correlations
+        assert any(second in [item.source_memory_id, item.target_memory_id] for item in correlations)
+    search = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "apple", "include_vector_details": True, "include_correlations": True},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    result = search.get_json()["results"][0]
+    assert "vector_score" in result
+    assert "vector" in result
+    assert "correlations" in result
+    direct = client.get(f"/api/v1/memory/{first}/correlations?workspace_id={base['workspace_id']}", headers=api_headers)
+    assert direct.status_code == 200
+    assert direct.get_json()["correlations"]
+
+
+def test_generic_upload_metadata_does_not_correlate_irrelevant_memories(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    image = client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Messier 51",
+            "content": "Uploaded image m51.jpg stored path local visual vector dominant color green.",
+            "memory_type": "vision",
+            "tags": ["green", "image", "jpg", "m51", "nebula", "upload", "visual"],
+        },
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    pdf = client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Unixfor Company Information - chunk 1",
+            "content": "Uploaded document company kiosks pdf local mime path stored type.",
+            "memory_type": "long-term",
+            "tags": ["company", "kiosks", "pdf", "unixfor", "upload"],
+        },
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    with app.app_context():
+        correlations = CorrelationService().for_memory(image)
+        assert all(pdf not in [item.source_memory_id, item.target_memory_id] for item in correlations)
+
+
+def test_web_memory_and_session_workflows(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    memory = client.post(
+        "/memories",
+        data={
+            "agent_id": app.config["TEST_AGENT_ID"],
+            "workspace_id": app.config["TEST_WORKSPACE_ID"],
+            "title": "UI memory",
+            "content": "UI can save memories.",
+            "memory_type": "long-term",
+            "tags": "ui,test",
+            "importance_score": "0.6",
+            "trust_score": "0.7",
+            "sensitivity_level": "normal",
+            "confirmed": "on",
+        },
+        follow_redirects=True,
+    )
+    assert memory.status_code == 200
+    session = client.post(
+        "/sessions",
+        data={"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"], "title": "UI Session"},
+        follow_redirects=False,
+    )
+    assert session.status_code == 302
+
+
+def test_session_replay_and_web_consolidate(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    session = client.post(
+        "/sessions",
+        data={"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"], "title": "Replay Session"},
+        follow_redirects=False,
+    )
+    session_id = int(session.headers["Location"].rstrip("/").split("/")[-1])
+    message = client.post(
+        f"/sessions/{session_id}/message",
+        data={"role": "user", "content": "Decision: use PostgreSQL for production."},
+        follow_redirects=True,
+    )
+    assert b"PostgreSQL" in message.data
+    replay = client.get(f"/sessions/{session_id}")
+    assert replay.status_code == 200
+    assert b"Replay Session" in replay.data
+    consolidated = client.post(f"/sessions/{session_id}/consolidate", follow_redirects=True)
+    assert consolidated.status_code == 200
+    with app.app_context():
+        from app.models import ConsolidationJob
+
+        job = ConsolidationJob.query.filter_by(session_id=session_id).first()
+        assert job is not None
+        assert job.status in {"queued", "completed"}
+
+
+def test_workspace_isolation(client, app, api_headers):
+    with app.app_context():
+        other = Workspace(name="Other")
+        db.session.add(other)
+        db.session.commit()
+        other_id = other.id
+    res = client.post(
+        "/api/v1/memory/search",
+        json={"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": other_id, "query": "x"},
+        headers=api_headers,
+    )
+    assert res.status_code == 403
+
+
+def test_duplicates_page_renders_duplicate_groups(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "Duplicate detector should group similar PostgreSQL backup notes.", "memory_type": "technical_notes"},
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "Duplicate detector should group similar PostgreSQL backup notes with extra words.", "memory_type": "technical_notes"},
+        headers=api_headers,
+    )
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/duplicates")
+    assert res.status_code == 200
+    assert b"Potential Duplicate Groups" in res.data
+
+
+def test_session_consolidation_context_and_audit(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    session_id = client.post("/api/v1/session/start", json=base, headers=api_headers).get_json()["session_id"]
+    client.post("/api/v1/session/add-message", json={"session_id": session_id, "role": "user", "content": "Decision: use Redis for Celery."}, headers=api_headers)
+    with app.app_context():
+        from app.models import ConsolidationJob
+
+        job = ConsolidationJob(session_id=session_id, **base)
+        db.session.add(job)
+        db.session.commit()
+        consolidate_session_task(job.id)
+        assert Memory.query.count() >= 1
+        assert AuditLog.query.count() >= 1
+    ctx = client.post("/api/v1/context/build", json={**base, "prompt": "What queue do we use?", "top_k": 3}, headers=api_headers)
+    assert ctx.status_code == 200
+
+
+def test_sensitive_memory_filtering(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post("/api/v1/memory/add", json={**base, "content": "secret token is not injectable", "memory_type": "security_findings", "sensitivity_level": "secret"}, headers=api_headers)
+    ctx = client.post("/api/v1/context/build", json={**base, "prompt": "token", "top_k": 3, "sensitivity_policy": "strict"}, headers=api_headers)
+    assert "secret token" not in ctx.get_json()["context"]
+
+def test_faiss_rebuild(client, app, api_headers):
+    from app.services.embedding_service import EmbeddingService
+    from app.services.faiss_service import FaissService
+
+    with app.app_context():
+        status = FaissService(app.config["FAISS_INDEX_DIR"]).rebuild(app.config["TEST_WORKSPACE_ID"], EmbeddingService(app.config["EMBEDDING_MODEL"]))
+        assert "count" in status
+
+
+def test_unixfor_semantic_search_uses_faiss_vectors(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    content = (
+        "For more detailed information about Unixfor's products, services, and company background, "
+        "please visit their official website at https://www.unixfor.gr/."
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Unixfor official website",
+            "content": content,
+            "memory_type": "long-term",
+            "tags": ["unixfor", "website", "company"],
+            "confirmed": True,
+        },
+        headers=api_headers,
+    )
+    for query in ["what is unixfor's web address", "where can I find unixfor online", "official site for unixfor"]:
+        res = client.post(
+            "/api/v1/memory/search",
+            json={**base, "query": query, "top_k": 3, "include_vector_details": True, "include_timing": True},
+            headers=api_headers,
+        )
+        assert res.status_code == 200
+        payload = res.get_json()
+        assert payload["timing"]["elapsed_ms"] < 300
+        assert "embedding_ms" in payload["timing"]
+        assert "faiss_search_ms" in payload["timing"]
+        assert "db_lookup_ms" in payload["timing"]
+        assert "serialization_ms" in payload["timing"]
+        match = next((item for item in payload["results"] if "https://www.unixfor.gr/" in item["memory"]["content"]), None)
+        assert match is not None
+        assert match["semantic_score"] > 0
+        assert match["vector_score"] > 0
+        assert match["vector"]["vector_id"] is not None
+        assert match["vector"]["retrieved_by"] == "semantic_vector"
+
+
+def test_vector_health_endpoint(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "Vector health should count indexed memories.", "memory_type": "technical_notes"},
+        headers=api_headers,
+    )
+    res = client.get("/api/v1/vector/health", headers=api_headers)
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["faiss_index_type"] == "IndexIDMap2(IndexFlatIP)"
+    assert payload["total_vectors"] >= 1
+    assert payload["memories_without_vectors"] == 0
+    warmup = client.post("/api/v1/vector/warmup", headers=api_headers)
+    assert warmup.status_code == 200
+    perf = client.get("/api/v1/performance", headers=api_headers)
+    assert perf.status_code == 200
+    assert "search_latency" in perf.get_json()
+
+
+def test_get_search_compact_mode(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "Compact search should return small agent-ready payloads.", "memory_type": "technical_notes"},
+        headers=api_headers,
+    )
+    res = client.get(
+        f"/api/v1/search?workspace_id={base['workspace_id']}&query=agent-ready payloads&compact=true&mode=agent",
+        headers=api_headers,
+    )
+    assert res.status_code == 200
+    item = res.get_json()["results"][0]
+    assert "memory_id" in item
+    assert "semantic_score" in item
+    assert "assets" not in item
+    assert "created_at" not in item

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block page_title %}Sensitive Review{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4"><div><div class="eyebrow">Memory Firewall</div><h2>Review high-risk memories before context injection</h2><p>Confirm, archive, forget, or permanently delete records that may contain secrets, credentials, or sensitive findings.</p></div></section>
+<section class="metric-grid mb-4">
+  <div class="metric-card"><i class="fa-solid fa-shield-halved"></i><span>Total sensitive</span><strong>{{ stats.total }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-hourglass-half"></i><span>Pending</span><strong>{{ stats.pending }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-triangle-exclamation"></i><span>High</span><strong>{{ stats.high }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-lock"></i><span>Secret</span><strong>{{ stats.secret }}</strong></div>
+</section>
+<section class="panel"><div class="panel-heading"><h2>Review Queue</h2><span>{{ memories|length }} shown</span></div>{% include "partials/memory_table.html" %}{% include "partials/pagination.html" %}</section>
+{% endblock %}

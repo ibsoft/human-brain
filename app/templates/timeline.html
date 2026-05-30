@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block page_title %}Memory Timeline{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4"><div><div class="eyebrow">Chronology</div><h2>Memory timeline</h2><p>Scan memories by creation time, type, sensitivity, and trust.</p></div></section>
+<section class="timeline">
+  {% for m in memories %}
+  <div class="timeline-item"><span>{{ m.created_at|dt }} · {{ m.memory_type }} · trust {{ "%.2f"|format(m.trust_score) }}</span><h2>{{ m.title }}</h2><p>{{ m.summary or m.content }}</p>{% for tag in m.tags or [] %}<span class="badge text-bg-dark border">{{ tag }}</span> {% endfor %}</div>
+  {% endfor %}
+</section>
+{% include "partials/pagination.html" %}
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block page_title %}Memories{% endblock %}{% block content %}
+<section class="hero-panel mb-4">
+  <div><div class="eyebrow">Memory Registry</div><h2>Store, review, and govern agent memories</h2><p>Every memory is workspace-scoped, scored for trust and importance, and auditable through its lifecycle.</p></div>
+</section>
+<section class="panel mb-4">
+  <div class="panel-heading"><h2>Add Memory</h2><span class="text-secondary">Manual capture</span></div>
+  <form method="post" enctype="multipart/form-data" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="col-12">
+      <div class="memory-input-modes" role="group" aria-label="Memory input mode">
+        <label><input type="radio" name="memory_input_mode" value="single" checked> <i class="fa-solid fa-pen-to-square"></i> Single Memory</label>
+        <label><input type="radio" name="memory_input_mode" value="file"> <i class="fa-solid fa-file-arrow-up"></i> Upload File</label>
+        <label><input type="radio" name="memory_input_mode" value="image"> <i class="fa-solid fa-image"></i> Upload Image</label>
+      </div>
+    </div>
+    <div class="col-md-3"><select class="form-select" name="agent_id">{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><select class="form-select" name="workspace_id">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><input class="form-control" name="title" placeholder="Title"></div>
+    <div class="col-md-3"><select class="form-select" name="memory_type"><option>long-term</option><option>task</option><option>project</option><option>preference</option><option>security-sensitive</option><option>vision</option></select></div>
+    <div class="col-12 memory-mode-field mode-single"><textarea class="form-control" name="content" rows="3" placeholder="Memory content"></textarea></div>
+    <div class="col-md-4"><input class="form-control" name="tags" placeholder="tags, comma, separated"></div>
+    <div class="col-md-2"><input class="form-control" name="importance_score" type="number" step="0.1" min="0" max="1" value="0.5"></div>
+    <div class="col-md-2"><input class="form-control" name="trust_score" type="number" step="0.1" min="0" max="1" value="0.5"></div>
+    <div class="col-md-2"><select class="form-select" name="sensitivity_level"><option>normal</option><option>high</option><option>secret</option></select></div>
+    <div class="col-md-4 memory-mode-field mode-file mode-image"><input id="memoryUploadInput" class="form-control" type="file" name="uploads" multiple accept=".txt,.md,.markdown,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.css,image/*,.pdf,.docx"></div>
+    <div class="col-md-2 memory-mode-field mode-file"><select class="form-select" name="ingest_mode"><option value="all">Store whole file</option><option value="chunks">Store in chunks</option></select></div>
+    <div class="col-md-2 memory-mode-field mode-file"><input class="form-control" name="chunk_size" type="number" min="500" step="500" value="4000" placeholder="Chunk size"></div>
+    <div class="col-md-4 memory-mode-field mode-image"><div class="upload-hint"><i class="fa-solid fa-vector-square"></i> Image uploads store a local visual vector for correlation.</div></div>
+    <div class="col-md-2"><div class="form-check form-switch mt-2"><input class="form-check-input" name="confirmed" type="checkbox"><label class="form-check-label">Confirm</label></div></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i> Store</button></div>
+  </form>
+</section>
+<section class="panel"><div class="panel-heading"><h2>Active Memories</h2><span>{{ memories|length }} shown</span></div>{% include "partials/memory_table.html" %}{% include "partials/pagination.html" %}</section>
+{% endblock %}

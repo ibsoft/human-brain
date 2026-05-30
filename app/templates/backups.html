@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block page_title %}Backups{% endblock %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div>
+    <div class="eyebrow">Recovery Operations</div>
+    <h2>Full zip backups and restore</h2>
+    <p>Backups include a manifest, SQLite database when applicable, FAISS indexes, uploads, and snapshots. Secrets and environment files are never included.</p>
+  </div>
+  <div class="hero-actions">
+    <form method="post" action="{{ url_for('main.create_backup') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary"><i class="fa-solid fa-file-zipper"></i> Create Backup</button>
+    </form>
+  </div>
+</section>
+
+<section class="metric-grid mb-4">
+  <div class="metric-card"><i class="fa-solid fa-box-archive"></i><span>Backup files</span><strong>{{ backup_count }}</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-database"></i><span>SQLite DB</span><strong>included</strong></div>
+  <div class="metric-card"><i class="fa-solid fa-lock"></i><span>Secrets</span><strong>excluded</strong></div>
+</section>
+
+<section class="panel mb-4">
+  <div class="panel-heading"><h2>Backup Schedule</h2><a href="{{ url_for('main.settings') }}">Edit in Settings</a></div>
+  <p class="text-secondary">Configure scheduled backup policy in Settings. Celery beat or your host scheduler should call <code>python manage.py backup</code> using that policy.</p>
+</section>
+
+<section class="grid-2 mb-4">
+  <div class="panel">
+    <div class="panel-heading"><h2>Create Full Backup</h2><span>.zip archive</span></div>
+    <p class="text-secondary">Use this before upgrades, migrations, model changes, or large memory imports.</p>
+    <form method="post" action="{{ url_for('main.create_backup') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary"><i class="fa-solid fa-file-zipper"></i> Create Full Zip Backup</button>
+    </form>
+  </div>
+  <div class="panel">
+    <div class="panel-heading"><h2>Restore Backup</h2><span>admin only</span></div>
+    <p class="text-secondary">Restore a trusted `.zip` backup. Current SQLite data and local assets may be overwritten.</p>
+    <form method="post" action="{{ url_for('main.restore_backup') }}" enctype="multipart/form-data" class="restore-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input class="form-control" type="file" name="backup" accept=".zip" required>
+      <button class="btn btn-outline-warning"><i class="fa-solid fa-rotate-left"></i> Restore</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading"><h2>Backup Archive</h2><span>{{ backup_count }} files</span></div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover align-middle">
+      <thead><tr><th>File</th><th>Type</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+      <tbody>
+      {% for backup in backups %}
+      <tr>
+        <td><i class="fa-solid fa-file-zipper text-info me-2"></i>{{ backup.name }}</td>
+        <td><span class="badge text-bg-info">{{ backup.kind }}</span></td>
+        <td>{{ backup.size_label }}</td>
+        <td>{{ backup.modified|dt }}</td>
+        <td class="text-end">
+          <form method="post" action="{{ url_for('main.delete_backup', filename=backup.name) }}" onsubmit="return confirm('Delete this backup file?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-secondary">No backups yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
