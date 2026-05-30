@@ -16,6 +16,7 @@ class ContextService:
             "agent_id": payload["agent_id"],
             "query": payload["prompt"],
             "top_k": int(payload.get("top_k", 8)),
+            "query_kind": "context_building",
             "memory_types": payload.get("memory_types"),
             "min_trust": payload.get("min_trust", 0.0),
             "include_correlations": bool(payload.get("include_correlations")),

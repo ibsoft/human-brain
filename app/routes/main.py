@@ -487,6 +487,22 @@ def settings():
                 "time": request.form.get("backup_time", "02:00"),
                 "keep_last": int(request.form.get("backup_keep_last", 7)),
             },
+            "reranker_enabled": request.form.get("reranker_enabled") == "on",
+            "reranker_provider": request.form.get("reranker_provider", "none").strip(),
+            "reranker_default_mode": request.form.get("reranker_default_mode", "conditional").strip(),
+            "reranker_cross_encoder_model": request.form.get("reranker_cross_encoder_model", "BAAI/bge-reranker-base").strip(),
+            "reranker_ollama_base_url": request.form.get("reranker_ollama_base_url", "http://localhost:11434").strip(),
+            "reranker_ollama_model": request.form.get("reranker_ollama_model", "qwen2.5:7b").strip(),
+            "reranker_top_n": int(request.form.get("reranker_top_n", 5)),
+            "reranker_return_k": int(request.form.get("reranker_return_k", 5)),
+            "reranker_timeout_ms": int(request.form.get("reranker_timeout_ms", 150)),
+            "reranker_weight": float(request.form.get("reranker_weight", 0.70)),
+            "faiss_weight": float(request.form.get("faiss_weight", 0.30)),
+            "trust_weight": float(request.form.get("trust_weight", 0.05)),
+            "importance_weight": float(request.form.get("importance_weight", 0.05)),
+            "reranker_conditional_threshold": float(request.form.get("reranker_conditional_threshold", 0.08)),
+            "reranker_max_text_chars": int(request.form.get("reranker_max_text_chars", 1500)),
+            "reranker_device": request.form.get("reranker_device", "cpu").strip(),
             "yolo_model": request.form.get("yolo_model", "yolo26x.pt").strip(),
             "vision_backend": request.form.get("vision_backend", "ultralytics").strip(),
             "camera_index": int(request.form.get("camera_index", 0)),
@@ -503,6 +519,16 @@ def settings():
         return redirect(url_for("main.settings"))
     settings_map = {item.key: item.value for item in SettingsService.all()}
     return render_template("settings.html", settings=settings_map, settings_json=json.dumps(settings_map, indent=2))
+
+
+@main_bp.post("/settings/test-reranker")
+@login_required
+@minimum_role("operator")
+def test_reranker():
+    from app.services.reranker_service import RerankerService
+
+    result = RerankerService().test()
+    return jsonify(result)
 
 
 @main_bp.route("/api-keys")
@@ -702,6 +728,8 @@ def web_context():
     if missing:
         return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
     try:
+        payload.setdefault("include_correlations", True)
+        payload.setdefault("correlation_limit", 5)
         return jsonify(ContextService().build(payload))
     except Exception as exc:
         current_app.logger.exception("Context builder failed")

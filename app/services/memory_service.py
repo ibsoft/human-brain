@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from time import perf_counter
 
@@ -11,6 +12,7 @@ from app.services.audit_service import AuditService
 from app.services.embedding_service import EmbeddingService
 from app.services.faiss_service import FaissService
 from app.services.performance_service import PerformanceService
+from app.services.reranker_service import RerankerService
 from app.services.settings_service import SettingsService
 from app.utils.hash import sha256_text
 
@@ -87,6 +89,12 @@ class MemoryService:
             "db_lookup_ms": 0,
             "correlation_ms": 0,
             "rerank_ms": 0,
+            "reranker_enabled": False,
+            "reranker_provider": "none",
+            "reranker_model": None,
+            "reranker_used": False,
+            "reranker_reason": None,
+            "reranker_ms": 0,
             "serialization_ms": 0,
             "total_ms": 0,
         }
@@ -111,16 +119,22 @@ class MemoryService:
                 keyword[:120],
                 len(semantic_hits),
             )
-        terms = [term for term in keyword.strip().split() if len(term) > 2]
+        terms = self._query_terms(keyword)
+        clauses = [or_(Memory.content.ilike(f"%{term}%"), Memory.title.ilike(f"%{term}%")) for term in terms]
+        candidate_limit = max(int(payload.get("top_k", 20)) * 10, 100)
         candidate_query = base_query
         if semantic_hits:
             candidate_query = base_query.filter(Memory.id.in_(semantic_hits.keys()))
         elif terms:
-            clauses = []
-            clauses.extend([or_(Memory.content.ilike(f"%{term}%"), Memory.title.ilike(f"%{term}%")) for term in terms])
             candidate_query = base_query.filter(or_(*clauses))
         stage = perf_counter()
-        memories = candidate_query.order_by(Memory.updated_at.desc()).limit(max(int(payload.get("top_k", 20)) * 10, 100)).all()
+        memories = candidate_query.order_by(Memory.updated_at.desc()).limit(candidate_limit).all()
+        if semantic_hits and clauses:
+            memory_by_id = {memory.id: memory for memory in memories}
+            keyword_memories = base_query.filter(or_(*clauses)).order_by(Memory.updated_at.desc()).limit(candidate_limit).all()
+            for memory in keyword_memories:
+                memory_by_id.setdefault(memory.id, memory)
+            memories = list(memory_by_id.values())
         timing["db_lookup_ms"] = round((perf_counter() - stage) * 1000, 2)
         stage = perf_counter()
         ranked = []
@@ -129,9 +143,9 @@ class MemoryService:
             recency = 1 / max((now - memory.created_at).days + 1, 1)
             keyword_score = self._keyword_score(keyword, memory)
             semantic_score = semantic_hits.get(memory.id, 0.0)
-            if semantic_hits and semantic_score <= 0:
+            if semantic_hits and semantic_score <= 0 and keyword_score <= 0:
                 continue
-            if semantic_hits and keyword_score <= 0 and semantic_score < float(payload.get("min_semantic_score", 0.25)):
+            if semantic_hits and semantic_score < float(payload.get("min_semantic_score", 0.25)) and keyword_score < float(payload.get("min_keyword_score", 0.5)):
                 continue
             score = (
                 max(semantic_score, 0.0) * 0.60
@@ -147,11 +161,10 @@ class MemoryService:
         timing["rerank_ms"] = round((perf_counter() - stage) * 1000, 2)
         if semantic_hits and not ranked and terms:
             fallback_started = perf_counter()
-            clauses = [or_(Memory.content.ilike(f"%{term}%"), Memory.title.ilike(f"%{term}%")) for term in terms]
             fallback_memories = (
                 base_query.filter(or_(*clauses))
                 .order_by(Memory.updated_at.desc())
-                .limit(max(int(payload.get("top_k", 20)) * 10, 100))
+                .limit(candidate_limit)
                 .all()
             )
             timing["keyword_fallback_ms"] = round((perf_counter() - fallback_started) * 1000, 2)
@@ -168,34 +181,66 @@ class MemoryService:
             ranked.sort(key=lambda item: item[0], reverse=True)
             ranked = ranked[: int(payload.get("top_k", 20))]
             timing["rerank_ms"] = round(timing["rerank_ms"] + ((perf_counter() - stage) * 1000), 2)
+        ranked_entries = [
+            {
+                "score": float(score),
+                "final_score": float(score),
+                "memory": memory,
+                "semantic_score": float(semantic_score),
+                "vector_hit": vector_hit,
+                "reranker_score": None,
+                "reranker_reason": None,
+            }
+            for score, memory, semantic_score, vector_hit in ranked
+        ]
+        ranked_entries, reranker_meta = RerankerService().maybe_rerank(keyword, ranked_entries, payload, mode)
+        timing["reranker_enabled"] = reranker_meta["enabled"]
+        timing["reranker_provider"] = reranker_meta["provider"]
+        timing["reranker_model"] = reranker_meta["model"]
+        timing["reranker_used"] = reranker_meta["used"]
+        timing["reranker_reason"] = reranker_meta["reason"]
+        timing["reranker_ms"] = reranker_meta["ms"]
         if payload.get("record_access", True):
-            for _, memory, _, _ in ranked:
+            for item in ranked_entries:
+                memory = item["memory"]
                 self.repo.mark_accessed(memory, payload.get("agent_id"), "search")
             db.session.commit()
         include_vector_details = bool(payload.get("include_vector_details") or payload.get("include_vectors") or mode == "debug")
         include_correlations = bool(payload.get("include_correlations") or payload.get("with_correlations") or mode == "debug")
         compact = bool(payload.get("compact") or mode == "agent")
         vectors_by_memory = {}
-        if include_vector_details and ranked:
+        if include_vector_details and ranked_entries:
             vectors_by_memory = {
                 row.memory_id: row
-                for row in MemoryVector.query.filter(MemoryVector.memory_id.in_([memory.id for _, memory, _, _ in ranked])).all()
+                for row in MemoryVector.query.filter(MemoryVector.memory_id.in_([item["memory"].id for item in ranked_entries])).all()
             }
         stage = perf_counter()
         results = []
-        for score, memory, semantic_score, vector_hit in ranked:
+        for entry in ranked_entries:
+            score = entry["final_score"]
+            memory = entry["memory"]
+            semantic_score = entry["semantic_score"]
+            vector_hit = entry["vector_hit"]
             if compact:
-                item = serialize_search_result_compact(memory, score, semantic_score)
+                item = serialize_search_result_compact(memory, score, semantic_score, entry)
+                item["retrieved_by"] = "reranked" if reranker_meta["used"] else ("semantic_vector" if vector_hit else "keyword_fallback")
+                item["reranker_provider"] = reranker_meta["provider"]
+                item["reranker_model"] = reranker_meta["model"]
                 if include_vector_details:
                     item["vector_id"] = (vectors_by_memory.get(memory.id).vector_id if vectors_by_memory.get(memory.id) else None) or (vector_hit or {}).get("vector_id")
-                    item["retrieved_by"] = "semantic_vector" if vector_hit else "keyword_fallback"
                 results.append(item)
                 continue
             item = {
                 "memory": serialize_memory(memory, include_assets=mode != "agent" or bool(payload.get("include_assets"))),
                 "relevance_score": round(score, 4),
+                "final_score": round(score, 4),
                 "vector_score": round(semantic_score, 4),
                 "semantic_score": round(semantic_score, 4),
+                "reranker_score": round(entry["reranker_score"], 4) if entry["reranker_score"] is not None else None,
+                "reranked": bool(reranker_meta["used"]),
+                "reranker_provider": reranker_meta["provider"],
+                "reranker_model": reranker_meta["model"],
+                "retrieved_by": "reranked" if reranker_meta["used"] else ("semantic_vector" if vector_hit else "keyword_fallback"),
                 "explanation": {
                     "semantic_similarity": round(semantic_score, 4),
                     "keyword_match": round(self._keyword_score(keyword, memory), 4),
@@ -204,6 +249,8 @@ class MemoryService:
                     "access_count": memory.access_count,
                 },
             }
+            if mode == "debug" and entry.get("reranker_reason"):
+                item["reranker_reason"] = entry["reranker_reason"]
             if include_vector_details:
                 item["vector"] = self._vector_metadata(memory, semantic_score, vector_hit, vector=vectors_by_memory.get(memory.id))
             if include_correlations:
@@ -297,14 +344,49 @@ class MemoryService:
         return query
 
     def _keyword_score(self, keyword, memory):
-        if not keyword:
-            return 0.0
+        terms = self._query_terms(keyword)
         haystack = f"{memory.title} {memory.content} {' '.join(memory.tags or [])}".lower()
-        terms = [term.lower() for term in keyword.split() if len(term) > 2]
+        haystack_terms = set(self._query_terms(haystack))
         if not terms:
             return 0.0
-        matches = sum(1 for term in terms if term in haystack)
+        matches = sum(1 for term in terms if term in haystack_terms)
         return matches / len(terms)
+
+    def _query_terms(self, text):
+        stop_words = {
+            "a",
+            "an",
+            "and",
+            "are",
+            "can",
+            "did",
+            "does",
+            "for",
+            "from",
+            "have",
+            "has",
+            "how",
+            "is",
+            "me",
+            "of",
+            "or",
+            "the",
+            "to",
+            "was",
+            "what",
+            "when",
+            "where",
+            "which",
+            "who",
+            "why",
+            "with",
+        }
+        terms = []
+        for raw in re.findall(r"[a-zA-Z0-9']+", (text or "").lower()):
+            term = raw.removesuffix("'s").strip("'")
+            if len(term) > 2 and term not in stop_words:
+                terms.append(term)
+        return terms
 
     def archive(self, memory, actor_id=None):
         memory.archived = True
@@ -327,17 +409,22 @@ class MemoryService:
             current_app.logger.exception("Could not rebuild FAISS index for workspace %s", workspace_id)
 
 
-def serialize_search_result_compact(memory, score, semantic_score):
+def serialize_search_result_compact(memory, score, semantic_score, entry=None):
+    entry = entry or {}
     return {
         "memory_id": memory.id,
         "title": memory.title,
         "content": memory.content,
+        "memory_type": memory.memory_type,
+        "tags": memory.tags or [],
         "semantic_score": round(float(semantic_score), 4),
         "vector_score": round(float(semantic_score), 4),
         "relevance_score": round(float(score), 4),
+        "final_score": round(float(score), 4),
+        "reranker_score": round(entry["reranker_score"], 4) if entry.get("reranker_score") is not None else None,
+        "reranked": entry.get("reranker_score") is not None,
         "trust_score": memory.trust_score,
         "importance_score": memory.importance_score,
-        "memory_type": memory.memory_type,
     }
 
 

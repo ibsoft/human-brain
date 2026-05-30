@@ -2,6 +2,8 @@ from app.extensions import db
 from app.models import AuditLog, Memory, User, Workspace
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
+from app.services.reranker_service import RerankerService
+from app.services.settings_service import SettingsService
 from app.workers.tasks import consolidate_session_task
 
 
@@ -129,6 +131,122 @@ def test_web_semantic_search_returns_memory(client, app, api_headers):
     payload = res.get_json()
     assert payload["results"]
     assert "PostgreSQL" in payload["results"][0]["memory"]["content"]
+
+
+def test_reranker_disabled_adds_timing_without_reranking(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={**base, "content": "PostgreSQL is used for production storage.", "memory_type": "technical_notes", "confirmed": True},
+        headers=api_headers,
+    )
+    search = client.post("/api/v1/memory/search", json={**base, "query": "production storage", "include_timing": True}, headers=api_headers)
+    assert search.status_code == 200
+    payload = search.get_json()
+    assert payload["timing"]["reranker_enabled"] is False
+    assert payload["timing"]["reranker_used"] is False
+    assert payload["results"][0]["reranker_score"] is None
+    assert "final_score" in payload["results"][0]
+
+
+def test_cross_encoder_reranker_reorders_candidates(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    first = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "General database note", "content": "Storage notes mention backups.", "memory_type": "technical_notes", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    second = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "PostgreSQL production note", "content": "PostgreSQL is the production database.", "memory_type": "technical_notes", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    with app.app_context():
+        SettingsService.update(
+            {
+                "reranker_enabled": True,
+                "reranker_provider": "cross_encoder",
+                "reranker_default_mode": "always",
+                "reranker_top_n": 5,
+                "reranker_return_k": 5,
+                "reranker_timeout_ms": 1000,
+            }
+        )
+
+    def fake_scores(self, query, candidates, settings):
+        return {item["memory"].id: (0.95 if item["memory"].id == second else 0.1) for item in candidates}, {}
+
+    monkeypatch.setattr(RerankerService, "_cross_encoder_scores", fake_scores)
+    RerankerService._cross_encoder = object()
+    RerankerService._cross_encoder_key = ("BAAI/bge-reranker-base", "cpu")
+    search = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "database", "include_timing": True, "top_k": 5},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    payload = search.get_json()
+    assert payload["timing"]["reranker_used"] is True
+    assert payload["results"][0]["memory"]["id"] == second
+    assert payload["results"][0]["reranker_score"] == 0.95
+    assert payload["results"][0]["retrieved_by"] == "reranked"
+    assert first in [item["memory"]["id"] for item in payload["results"]]
+
+
+def test_semantic_search_unions_keyword_candidates_when_faiss_has_hits(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    username_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "UserName", "content": "User name is John in Greek Yannis.", "memory_type": "long-term", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    work_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "User work", "content": "John's job is Information Security Manager at Unixfor.", "memory_type": "long-term", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": username_id, "semantic_score": 0.6, "vector_id": 1, "raw_score": 0.6}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    search = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "what job john have", "include_timing": True, "top_k": 10},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    ids = [item["memory"]["id"] for item in search.get_json()["results"]]
+    assert username_id in ids
+    assert work_id in ids
+
+
+def test_weak_keyword_only_candidate_is_filtered_when_semantic_is_low(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    username_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "UserName", "content": "User name is John in Greek Yannis.", "memory_type": "long-term", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    work_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "John's Work", "content": "John works at Unixfor as an Information Security Manager.", "memory_type": "long-term", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": username_id, "semantic_score": 0.6, "vector_id": 1, "raw_score": 0.6}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    search = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "what is john's favorite food", "include_timing": True, "top_k": 10},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    ids = [item["memory"]["id"] for item in search.get_json()["results"]]
+    assert username_id in ids
+    assert work_id not in ids
 
 
 def test_memory_correlation_service(client, app, api_headers):
