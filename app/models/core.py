@@ -46,6 +46,7 @@ class AppSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     key = db.Column(db.String(120), unique=True, nullable=False, index=True)
     value = db.Column(db.JSON, nullable=False)
+    value_type = db.Column(db.String(32), nullable=False, default="json")
     description = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 

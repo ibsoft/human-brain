@@ -1,4 +1,5 @@
 import logging
+import sys
 from datetime import datetime
 from logging.config import dictConfig
 
@@ -120,6 +121,9 @@ def register_cli(app):
 
 def warmup_vectors(app):
     if not app.config.get("VECTOR_STARTUP_WARMUP"):
+        return
+    if "db" in sys.argv:
+        app.logger.debug("Skipping vector startup warmup during database command")
         return
     try:
         with app.app_context():

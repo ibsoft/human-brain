@@ -22,6 +22,27 @@
       <label class="form-label mt-2">Frequency</label><select class="form-select" name="backup_frequency"><option value="daily" {% if settings.backup_schedule.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.backup_schedule.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
       <label class="form-label mt-2">Time</label><input class="form-control" name="backup_time" value="{{ settings.backup_schedule.time }}" placeholder="02:00">
       <label class="form-label mt-2">Keep last</label><input class="form-control" type="number" name="backup_keep_last" value="{{ settings.backup_schedule.keep_last }}" placeholder="7">
+      <h2 class="mt-4">Reranker Settings</h2>
+      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="reranker_enabled" {% if settings.reranker_enabled %}checked{% endif %}><label class="form-check-label">Reranker Enabled</label></div>
+      <label class="form-label mt-2">Provider</label><select class="form-select" name="reranker_provider"><option value="none" {% if settings.reranker_provider == 'none' %}selected{% endif %}>none</option><option value="cross_encoder" {% if settings.reranker_provider == 'cross_encoder' %}selected{% endif %}>cross_encoder</option><option value="ollama" {% if settings.reranker_provider == 'ollama' %}selected{% endif %}>ollama</option></select>
+      <label class="form-label mt-2">Default Mode</label><select class="form-select" name="reranker_default_mode"><option value="off" {% if settings.reranker_default_mode == 'off' %}selected{% endif %}>off</option><option value="always" {% if settings.reranker_default_mode == 'always' %}selected{% endif %}>always</option><option value="conditional" {% if settings.reranker_default_mode == 'conditional' %}selected{% endif %}>conditional</option></select>
+      <label class="form-label mt-2">Cross-Encoder Model Name</label><input class="form-control" name="reranker_cross_encoder_model" value="{{ settings.reranker_cross_encoder_model }}" placeholder="BAAI/bge-reranker-base">
+      <label class="form-label mt-2">Ollama Base URL</label><input class="form-control" name="reranker_ollama_base_url" value="{{ settings.reranker_ollama_base_url }}" placeholder="http://localhost:11434">
+      <label class="form-label mt-2">Ollama Model Name</label><input class="form-control" name="reranker_ollama_model" value="{{ settings.reranker_ollama_model }}" placeholder="qwen2.5:7b">
+      <div class="row g-2 mt-1">
+        <div class="col-md-6"><label class="form-label">Reranker Top N</label><input class="form-control" type="number" name="reranker_top_n" value="{{ settings.reranker_top_n }}" min="1" max="50"></div>
+        <div class="col-md-6"><label class="form-label">Return Top K</label><input class="form-control" type="number" name="reranker_return_k" value="{{ settings.reranker_return_k }}" min="1" max="50"></div>
+        <div class="col-md-6"><label class="form-label">Timeout MS</label><input class="form-control" type="number" name="reranker_timeout_ms" value="{{ settings.reranker_timeout_ms }}" min="1" max="30000"></div>
+        <div class="col-md-6"><label class="form-label">Max Candidate Text Chars</label><input class="form-control" type="number" name="reranker_max_text_chars" value="{{ settings.reranker_max_text_chars }}" min="100" max="12000"></div>
+        <div class="col-md-6"><label class="form-label">Reranker Weight</label><input class="form-control" type="number" step="0.01" name="reranker_weight" value="{{ settings.reranker_weight }}" min="0" max="1"></div>
+        <div class="col-md-6"><label class="form-label">FAISS Weight</label><input class="form-control" type="number" step="0.01" name="faiss_weight" value="{{ settings.faiss_weight }}" min="0" max="1"></div>
+        <div class="col-md-6"><label class="form-label">Trust Weight</label><input class="form-control" type="number" step="0.01" name="trust_weight" value="{{ settings.trust_weight }}" min="0" max="1"></div>
+        <div class="col-md-6"><label class="form-label">Importance Weight</label><input class="form-control" type="number" step="0.01" name="importance_weight" value="{{ settings.importance_weight }}" min="0" max="1"></div>
+        <div class="col-md-6"><label class="form-label">Conditional Threshold</label><input class="form-control" type="number" step="0.01" name="reranker_conditional_threshold" value="{{ settings.reranker_conditional_threshold }}" min="0" max="1"></div>
+        <div class="col-md-6"><label class="form-label">Device</label><select class="form-select" name="reranker_device"><option value="cpu" {% if settings.reranker_device == 'cpu' %}selected{% endif %}>cpu</option><option value="cuda" {% if settings.reranker_device == 'cuda' %}selected{% endif %}>cuda</option></select></div>
+      </div>
+      <button id="testRerankerButton" class="btn btn-outline-info mt-3" type="button"><i class="fa-solid fa-vial"></i> Test Reranker</button>
+      <pre id="rerankerTestOutput" class="output mt-3"></pre>
     </div>
     <div class="col-lg-6">
       <h2>Vision Models</h2>

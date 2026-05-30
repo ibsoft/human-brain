@@ -124,6 +124,8 @@ function initGlobalButtons(){
   document.getElementById("sidebarBackdrop")?.addEventListener("click",()=>toggleMobileSidebar(false));
   document.getElementById("searchButton")?.addEventListener("click",demoSearch);
   document.getElementById("copySearchJson")?.addEventListener("click",copySearchJson);
+  document.getElementById("copyContextJson")?.addEventListener("click",copyContextJson);
+  document.getElementById("testRerankerButton")?.addEventListener("click",testReranker);
   document.getElementById("searchPrompt")?.addEventListener("keydown",event=>{
     if(event.key === "Enter"){
       event.preventDefault();
@@ -146,9 +148,35 @@ function initGlobalButtons(){
   initMemoryInputModes();
 }
 async function copySearchJson(){
-  const output = document.getElementById("searchOutput");
-  const button = document.getElementById("copySearchJson");
-  const text = output?.textContent || "";
+  await copyJsonOutput("searchOutput","copySearchJson");
+}
+async function testReranker(){
+  const button = document.getElementById("testRerankerButton");
+  const output = document.getElementById("rerankerTestOutput");
+  const original = button?.innerHTML;
+  if(button){
+    button.disabled = true;
+    button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing...';
+  }
+  try{
+    const data = await api("/settings/test-reranker",{});
+    if(output) output.textContent = JSON.stringify(data,null,2);
+  }catch(error){
+    if(output) output.textContent = JSON.stringify({ok:false,error:String(error)},null,2);
+  }finally{
+    if(button){
+      button.disabled = false;
+      button.innerHTML = original;
+    }
+  }
+}
+async function copyContextJson(){
+  await copyJsonOutput("ctxOutput","copyContextJson");
+}
+async function copyJsonOutput(outputId, buttonId){
+  const button = document.getElementById(buttonId);
+  const target = document.getElementById(outputId);
+  const text = target?.textContent || "";
   if(!text.trim()) return;
   try{
     await navigator.clipboard.writeText(text);
@@ -258,7 +286,9 @@ async function buildContext(){
     prompt,
     top_k:Number(el("ctxTopK").value),
     max_tokens:Number(el("ctxMaxTokens").value),
-    sensitivity_policy:el("ctxSensitivity").value
+    sensitivity_policy:el("ctxSensitivity").value,
+    include_correlations:true,
+    correlation_limit:5
   };
   button.disabled = true;
   button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Building...';
@@ -301,16 +331,36 @@ async function demoSearch(){
       const ms = data.timing?.elapsed_ms;
       el("searchCount").textContent=ms !== undefined ? `${data.results.length} memories in ${ms} ms` : `${data.results.length} memories`;
     }
+    if(el("searchRerankerStatus")){
+      const timing = data.timing || {};
+      const used = timing.reranker_used === true;
+      const enabled = timing.reranker_enabled === true;
+      const provider = timing.reranker_provider || "none";
+      const model = timing.reranker_model || "none";
+      const reason = timing.reranker_reason || "none";
+      const rerankerMs = timing.reranker_ms ?? 0;
+      const status = used ? "used" : (enabled ? "not used" : "disabled");
+      el("searchRerankerStatus").innerHTML = `
+        <span>reranker ${status}</span>
+        <span>provider ${escapeHtml(provider)}</span>
+        <span>model ${escapeHtml(model)}</span>
+        <span>reason ${escapeHtml(reason)}</span>
+        <span>reranker ${rerankerMs} ms</span>
+      `;
+    }
     el("searchResults").innerHTML=data.results.map(result=>{
       const m=result.memory;
       const correlations=(result.correlations||[]).map(c=>`<a class="badge text-bg-dark border" href="/graph?memory_id=${m.id}">#${c.related_memory.id} ${escapeHtml(c.related_memory.title)} (${c.strength})</a>`).join(" ");
       const assets=(m.assets||[]).map(asset=>`<a class="badge text-bg-success" href="${asset.url}" target="_blank">${escapeHtml(asset.asset_type)}: ${escapeHtml(asset.original_filename)}</a>`).join(" ");
+      const rerankerScore = result.reranker_score ?? "none";
+      const finalScore = result.final_score ?? result.relevance_score;
+      const retrievedBy = result.retrieved_by || "search";
       return `<div class="search-result rich-search-result">
         <div>
-          <div class="result-title"><b>#${m.id} ${escapeHtml(m.title)}</b><span>${result.relevance_score}</span></div>
+          <div class="result-title"><b>#${m.id} ${escapeHtml(m.title)}</b><span>${finalScore}</span></div>
           <p>${escapeHtml(m.summary||m.content).slice(0,700)}</p>
           <div class="score-strip">
-            <span>semantic ${result.semantic_score}</span><span>keyword ${result.explanation.keyword_match}</span><span>trust ${m.trust_score}</span><span>importance ${m.importance_score}</span>
+            <span>${escapeHtml(retrievedBy)}</span><span>final ${finalScore}</span><span>semantic ${result.semantic_score}</span><span>reranker ${rerankerScore}</span><span>keyword ${result.explanation.keyword_match}</span><span>trust ${m.trust_score}</span><span>importance ${m.importance_score}</span>
           </div>
           <div class="mt-2"><span class="badge text-bg-info">${escapeHtml(m.memory_type)}</span> ${assets}</div>
           <div class="correlation-links mt-2">${correlations || '<span class="text-secondary">No direct correlations returned.</span>'}</div>

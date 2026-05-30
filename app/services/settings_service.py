@@ -1,3 +1,5 @@
+import os
+
 from flask import current_app, has_app_context
 
 from app.extensions import db
@@ -79,18 +81,140 @@ DEFAULT_SETTINGS = {
         "value": "auto",
         "description": "OpenCV capture API: auto, v4l2, dshow, avfoundation.",
     },
+    "reranker_enabled": {
+        "value": False,
+        "env": "RERANKER_ENABLED",
+        "value_type": "bool",
+        "description": "Enable the optional reranking layer.",
+    },
+    "reranker_provider": {
+        "value": "none",
+        "env": "RERANKER_PROVIDER",
+        "value_type": "string",
+        "description": "Reranker provider: none, cross_encoder, or ollama.",
+    },
+    "reranker_default_mode": {
+        "value": "conditional",
+        "env": "RERANKER_DEFAULT_MODE",
+        "value_type": "string",
+        "description": "Reranking mode: off, always, or conditional.",
+    },
+    "reranker_cross_encoder_model": {
+        "value": "BAAI/bge-reranker-base",
+        "env": "RERANKER_CROSS_ENCODER_MODEL",
+        "value_type": "string",
+        "description": "Sentence Transformers CrossEncoder model name.",
+    },
+    "reranker_ollama_base_url": {
+        "value": "http://localhost:11434",
+        "env": "RERANKER_OLLAMA_BASE_URL",
+        "value_type": "string",
+        "description": "Ollama server URL for LLM reranking.",
+    },
+    "reranker_ollama_model": {
+        "value": "qwen2.5:7b",
+        "env": "RERANKER_OLLAMA_MODEL",
+        "value_type": "string",
+        "description": "Ollama model used for LLM reranking.",
+    },
+    "reranker_top_n": {
+        "value": 5,
+        "env": "RERANKER_TOP_N",
+        "value_type": "int",
+        "description": "Number of top candidates to rerank.",
+    },
+    "reranker_return_k": {
+        "value": 5,
+        "env": "RERANKER_RETURN_K",
+        "value_type": "int",
+        "description": "Maximum reranked candidates to return before final top_k.",
+    },
+    "reranker_timeout_ms": {
+        "value": 150,
+        "env": "RERANKER_TIMEOUT_MS",
+        "value_type": "int",
+        "description": "Reranker timeout in milliseconds.",
+    },
+    "reranker_weight": {
+        "value": 0.70,
+        "env": "RERANKER_WEIGHT",
+        "value_type": "float",
+        "description": "Final score weight for reranker score.",
+    },
+    "faiss_weight": {
+        "value": 0.30,
+        "env": "FAISS_WEIGHT",
+        "value_type": "float",
+        "description": "Final score weight for FAISS semantic score.",
+    },
+    "trust_weight": {
+        "value": 0.05,
+        "env": "TRUST_WEIGHT",
+        "value_type": "float",
+        "description": "Final score weight for memory trust.",
+    },
+    "importance_weight": {
+        "value": 0.05,
+        "env": "IMPORTANCE_WEIGHT",
+        "value_type": "float",
+        "description": "Final score weight for memory importance.",
+    },
+    "reranker_conditional_threshold": {
+        "value": 0.08,
+        "env": "RERANKER_CONDITIONAL_THRESHOLD",
+        "value_type": "float",
+        "description": "Top-score gap threshold for conditional reranking.",
+    },
+    "reranker_max_text_chars": {
+        "value": 1500,
+        "env": "RERANKER_MAX_TEXT_CHARS",
+        "value_type": "int",
+        "description": "Maximum candidate text length sent to the reranker.",
+    },
+    "reranker_device": {
+        "value": "cpu",
+        "env": "RERANKER_DEVICE",
+        "value_type": "string",
+        "description": "Cross-encoder device: cpu or cuda.",
+    },
 }
+
+
+def _coerce_env_value(raw, value_type):
+    if value_type == "bool":
+        return str(raw).lower() in {"1", "true", "yes", "on"}
+    if value_type == "int":
+        return int(raw)
+    if value_type == "float":
+        return float(raw)
+    return raw
+
+
+def default_value(key):
+    payload = DEFAULT_SETTINGS.get(key, {})
+    value = payload.get("value")
+    env_name = payload.get("env")
+    if env_name and os.getenv(env_name) is not None:
+        return _coerce_env_value(os.getenv(env_name), payload.get("value_type", "json"))
+    return value
 
 
 class SettingsService:
     @staticmethod
     def ensure_defaults():
         for key, payload in DEFAULT_SETTINGS.items():
-            value = payload["value"]
+            value = default_value(key)
             if key == "embedding_model" and has_app_context():
                 value = current_app.config.get("EMBEDDING_MODEL", value)
             if not AppSetting.query.filter_by(key=key).first():
-                db.session.add(AppSetting(key=key, value=value, description=payload["description"]))
+                db.session.add(
+                    AppSetting(
+                        key=key,
+                        value=value,
+                        value_type=payload.get("value_type", "json"),
+                        description=payload["description"],
+                    )
+                )
         db.session.commit()
 
     @staticmethod
@@ -99,7 +223,7 @@ class SettingsService:
         if setting is None:
             if key == "embedding_model" and has_app_context():
                 return current_app.config.get("EMBEDDING_MODEL", default)
-            return DEFAULT_SETTINGS.get(key, {}).get("value", default)
+            return default_value(key) if key in DEFAULT_SETTINGS else default
         return setting.value
 
     @staticmethod

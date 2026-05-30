@@ -36,6 +36,45 @@ python manage.py
 Open `http://localhost:5000`.
 On first launch, `/login` redirects to `/setup` so you can create the first admin account in the browser.
 
+## Demo And Sample Data
+
+Create the default demo workspace, demo agent, and demo API key:
+
+```bash
+python manage.py seed-demo-data
+```
+
+Copy the printed `Demo API key` immediately; raw API keys are only shown when created.
+
+Create richer sample data for testing search, context building, sessions, and correlations:
+
+```bash
+flask --app manage:app seed-sample-data --count 100
+```
+
+Remove generated sample data:
+
+```bash
+flask --app manage:app purge-sample-data
+```
+
+`purge-sample-data` deletes workspaces named `Sample%` and memories with `source=sample_seed`. It does not delete your normal default workspace or manually created memories unless they match those sample markers.
+
+Rebuild correlations for existing data:
+
+```bash
+flask --app manage:app rebuild-correlations
+```
+
+For Docker Compose:
+
+```bash
+docker compose exec web python manage.py seed-demo-data
+docker compose exec web flask --app manage:app seed-sample-data --count 100
+docker compose exec web flask --app manage:app purge-sample-data
+docker compose exec web flask --app manage:app rebuild-correlations
+```
+
 ## Docker Compose
 
 ```bash
@@ -50,6 +89,307 @@ Optional nginx profile:
 
 ```bash
 docker compose --profile nginx up --build
+```
+
+## PostgreSQL Install
+
+PostgreSQL is the recommended database for a durable installation. SQLite is useful for local development, but production installs should use PostgreSQL plus Redis.
+
+### Option A: PostgreSQL With Docker Compose
+
+This is the fastest PostgreSQL setup because `docker-compose.yml` already includes `postgres:16`, `redis:7-alpine`, the web app, Celery worker, and Celery beat.
+
+1. Create the environment file:
+
+```bash
+cp .env.example .env
+```
+
+2. Edit `.env` and change secrets before first start:
+
+```env
+FLASK_ENV=production
+SECRET_KEY=replace-this-with-a-long-random-secret
+DATABASE_URL=postgresql+psycopg://human_brain:human_brain@postgres:5432/human_brain
+REDIS_URL=redis://redis:6379/2
+CELERY_BROKER_URL=redis://redis:6379/0
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+RATELIMIT_STORAGE_URI=redis://redis:6379/3
+SESSION_COOKIE_SECURE=false
+FAISS_INDEX_DIR=/app/faiss_indexes
+SNAPSHOT_DIR=/app/uploads/snapshots
+```
+
+`docker-compose.yml` currently creates PostgreSQL with `POSTGRES_USER=human_brain`, `POSTGRES_PASSWORD=human_brain`, and `POSTGRES_DB=human_brain`. If you change the database password or username in `.env`, change the matching `postgres.environment` values in `docker-compose.yml` before the first `docker compose up`. PostgreSQL only uses those `POSTGRES_*` values when the `postgres_data` volume is first initialized.
+
+Use `SESSION_COOKIE_SECURE=true` only when the app is served through HTTPS. For plain local `http://localhost:5000`, keep it `false` or browser login cookies may not work.
+
+3. Start PostgreSQL, Redis, and the app:
+
+```bash
+docker compose up --build -d
+```
+
+4. Apply database migrations:
+
+```bash
+docker compose exec web flask --app manage:app db upgrade
+```
+
+5. Create demo access data:
+
+```bash
+docker compose exec web python manage.py seed-demo-data
+```
+
+Copy the printed demo API key immediately.
+
+6. Open the app:
+
+```text
+http://localhost:5000
+```
+
+7. Check service logs:
+
+```bash
+docker compose logs -f web
+docker compose logs -f postgres
+docker compose logs -f celery-worker
+```
+
+8. Create optional sample data:
+
+```bash
+docker compose exec web flask --app manage:app seed-sample-data --count 100
+```
+
+9. Remove optional sample data:
+
+```bash
+docker compose exec web flask --app manage:app purge-sample-data
+```
+
+10. Back up the Docker PostgreSQL database:
+
+Create the local backup folder first if needed:
+
+```bash
+mkdir -p backups
+```
+
+```bash
+docker compose exec postgres pg_dump -U human_brain human_brain > backups/human_brain.sql
+```
+
+Restore a SQL backup into the Docker PostgreSQL database:
+
+```bash
+docker compose exec -T postgres psql -U human_brain human_brain < backups/human_brain.sql
+```
+
+### Option B: Native PostgreSQL Plus Systemd
+
+Use this path when PostgreSQL and Redis run directly on the Linux host and the web app runs as a systemd service.
+
+1. Install OS packages on Ubuntu/Debian:
+
+```bash
+sudo apt update
+sudo apt install -y python3.11 python3.11-venv python3-pip postgresql postgresql-contrib redis-server build-essential libgl1 libglib2.0-0
+```
+
+2. Enable PostgreSQL and Redis:
+
+```bash
+sudo systemctl enable --now postgresql
+sudo systemctl enable --now redis-server
+```
+
+3. Create the PostgreSQL role and database:
+
+```bash
+sudo -u postgres psql
+```
+
+Inside the `psql` prompt:
+
+```sql
+CREATE USER human_brain WITH PASSWORD 'change-this-password';
+CREATE DATABASE human_brain OWNER human_brain;
+GRANT ALL PRIVILEGES ON DATABASE human_brain TO human_brain;
+\q
+```
+
+4. Verify local database login:
+
+```bash
+psql "postgresql://human_brain:change-this-password@localhost:5432/human_brain" -c "select version();"
+```
+
+If this fails, fix PostgreSQL authentication before continuing.
+
+5. Prepare the application checkout:
+
+```bash
+cd human-brain
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements-core.txt
+```
+
+Optional ML and vision dependencies:
+
+```bash
+pip install -r requirements-ml.txt
+```
+
+6. Create `.env` for native PostgreSQL:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+FLASK_ENV=production
+SECRET_KEY=replace-this-with-a-long-random-secret
+DATABASE_URL=postgresql+psycopg://human_brain:change-this-password@localhost:5432/human_brain
+REDIS_URL=redis://localhost:6379/2
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+RATELIMIT_STORAGE_URI=redis://localhost:6379/3
+SESSION_COOKIE_SECURE=false
+CORS_ENABLED=false
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+VECTOR_STARTUP_WARMUP=true
+VECTOR_AUTO_REPAIR_ON_WARMUP=true
+FAISS_INDEX_DIR=faiss_indexes
+SNAPSHOT_DIR=uploads/snapshots
+LOG_LEVEL=INFO
+```
+
+Use a strong unique `SECRET_KEY` and database password. If you put the app behind HTTPS, change `SESSION_COOKIE_SECURE=true`.
+
+7. Create runtime directories:
+
+```bash
+mkdir -p faiss_indexes uploads/snapshots uploads/memory_uploads logs backups
+```
+
+8. Apply migrations:
+
+```bash
+flask --app manage:app db upgrade
+```
+
+9. Create initial demo workspace, agent, and API key:
+
+```bash
+python manage.py seed-demo-data
+```
+
+Copy the printed API key immediately.
+
+10. Test the app manually before installing systemd:
+
+```bash
+gunicorn -c gunicorn.conf.py manage:app
+```
+
+Open:
+
+```text
+http://localhost:5000
+```
+
+Stop Gunicorn with `Ctrl+C` after the test.
+
+11. Install the systemd service:
+
+```bash
+scripts/install_systemd.sh --skip-deps --skip-migrations
+```
+
+The installer asks for your `sudo` password, writes `/etc/systemd/system/human-brain.service`, reloads systemd, enables the service, and starts it.
+
+12. Check the running service:
+
+```bash
+sudo systemctl status human-brain
+sudo journalctl -u human-brain -f
+```
+
+13. Re-run migrations after pulling updates:
+
+```bash
+source .venv/bin/activate
+flask --app manage:app db upgrade
+sudo systemctl restart human-brain
+```
+
+14. Rebuild FAISS and correlations after large imports or upgrades:
+
+```bash
+source .venv/bin/activate
+flask --app manage:app rebuild-index
+flask --app manage:app rebuild-correlations
+```
+
+15. Back up native PostgreSQL:
+
+```bash
+pg_dump "postgresql://human_brain:change-this-password@localhost:5432/human_brain" > backups/human_brain.sql
+```
+
+Restore native PostgreSQL:
+
+```bash
+psql "postgresql://human_brain:change-this-password@localhost:5432/human_brain" < backups/human_brain.sql
+```
+
+16. Common checks:
+
+```bash
+psql "postgresql://human_brain:change-this-password@localhost:5432/human_brain" -c "\dt"
+redis-cli ping
+curl http://localhost:5000/login
+```
+
+Expected results:
+
+- `psql \dt` lists application tables after migrations.
+- `redis-cli ping` returns `PONG`.
+- `curl` returns the login page HTML or a redirect.
+
+## Systemd Install
+
+For a Linux host with systemd, create and review `.env`, then run the installer:
+
+```bash
+cp .env.example .env
+$EDITOR .env
+scripts/install_systemd.sh
+```
+
+The installer creates `.venv`, installs `requirements-core.txt`, runs database migrations, asks for your `sudo` password before writing the unit, and installs `human-brain.service` under `/etc/systemd/system/`.
+
+Useful commands:
+
+```bash
+sudo systemctl status human-brain
+sudo journalctl -u human-brain -f
+sudo systemctl restart human-brain
+```
+
+Common options:
+
+```bash
+scripts/install_systemd.sh --port 5000 --workers 3 --threads 2
+scripts/install_systemd.sh --service-name human-brain-dev --no-start
+scripts/install_systemd.sh --skip-deps --skip-migrations
 ```
 
 ## Settings Page
