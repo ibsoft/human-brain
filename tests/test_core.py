@@ -726,6 +726,13 @@ def test_yolo26_settings_are_sanitized_to_default(app):
         assert SettingsService.get("vision_models") == ["models/yolov8n.pt"]
 
 
+def test_vision_model_settings_normalize_standard_filenames(app):
+    with app.app_context():
+        SettingsService.update({"yolo_model": "yolov8s.pt", "vision_models": ["models/yolov8n.pt", "yolov8n.pt", "yolov8s.pt", "/models/custom.pt"]})
+        assert SettingsService.get("yolo_model") == "models/yolov8s.pt"
+        assert SettingsService.get("vision_models") == ["models/yolov8n.pt", "models/yolov8s.pt", "/models/custom.pt"]
+
+
 def test_vision_model_error_message_explains_yolo26_runtime_mismatch(app):
     with app.app_context():
         message = VisionService()._model_error_message("models/yolo26x.pt", AttributeError("Can't get attribute 'C3k2'"))
