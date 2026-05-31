@@ -4,9 +4,10 @@ from app.extensions import db, limiter
 from app.models import Memory, MemoryVector, Session
 from app.security.auth import require_api_key, require_workspace_access
 from app.services.context_service import ContextService, confirm_memory
+from app.services.document_service import DocumentIngestionService
 from app.services.embedding_service import EmbeddingService
 from app.services.faiss_service import FaissService
-from app.services.memory_service import MemoryService, serialize_correlations, serialize_memory
+from app.services.memory_service import MemoryService, serialize_asset, serialize_correlations, serialize_memory
 from app.services.performance_service import PerformanceService
 from app.services.settings_service import SettingsService
 from app.services.session_service import SessionService
@@ -31,6 +32,34 @@ def bool_arg(name, default=False):
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def bool_form(name, default=False):
+    value = request.form.get(name)
+    if value is None:
+        return default
+    return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def form_float(name, default):
+    value = request.form.get(name)
+    try:
+        return float(value) if str(value or "").strip() else default
+    except ValueError:
+        abort(400, description=f"{name} must be a number")
+
+
+def form_int(name, default):
+    value = request.form.get(name)
+    try:
+        return int(value) if str(value or "").strip() else default
+    except ValueError:
+        abort(400, description=f"{name} must be an integer")
+
+
+def form_tags():
+    raw = request.form.get("tags", "")
+    return [tag.strip() for tag in raw.split(",") if tag.strip()]
+
+
 @api_bp.post("/memory/add")
 @require_api_key
 @limiter.limit("120 per minute")
@@ -39,6 +68,76 @@ def memory_add():
     require_workspace_access(payload.get("agent_id"), payload.get("workspace_id"))
     memory, duplicate = MemoryService().add_memory(payload, actor_id=payload.get("agent_id"))
     return jsonify({"memory": serialize_memory(memory), "duplicate": duplicate}), 201
+
+
+@api_bp.post("/memory/upload")
+@require_api_key
+@limiter.limit("60 per minute")
+def memory_upload():
+    workspace_id = request.form.get("workspace_id", type=int)
+    if not workspace_id:
+        abort(400, description="workspace_id is required")
+    require_workspace_access(g.agent.id, workspace_id)
+    uploads = [item for item in request.files.getlist("uploads") if item and item.filename]
+    if not uploads:
+        single = request.files.get("file")
+        uploads = [single] if single and single.filename else []
+    if not uploads:
+        abort(400, description="Upload at least one file using the 'uploads' or 'file' multipart field")
+    base_payload = {
+        "agent_id": g.agent.id,
+        "workspace_id": workspace_id,
+        "title": request.form.get("title", "").strip(),
+        "memory_type": request.form.get("memory_type", "long-term").strip() or "long-term",
+        "tags": form_tags(),
+        "importance_score": form_float("importance_score", 0.5),
+        "trust_score": form_float("trust_score", 0.5),
+        "sensitivity_level": request.form.get("sensitivity_level", "normal").strip() or "normal",
+        "visibility": request.form.get("visibility", "workspace").strip() or "workspace",
+        "confirmed": bool_form("confirmed", False),
+        "source": "agent_upload",
+        "storage_reason": request.form.get("storage_reason", "Stored from agent-uploaded file.").strip(),
+    }
+    created = DocumentIngestionService().ingest_uploads(
+        uploads,
+        base_payload,
+        actor_type="agent",
+        actor_id=g.agent.id,
+        mode=request.form.get("ingest_mode", "full"),
+        chunk_size=form_int("chunk_size", 4000),
+    )
+    return jsonify({"count": len(created), "memories": [serialize_memory(memory) for memory in created]}), 201
+
+
+@api_bp.post("/memory/<int:memory_id>/asset/replace")
+@require_api_key
+@limiter.limit("60 per minute")
+def memory_asset_replace(memory_id):
+    memory = db.session.get(Memory, memory_id)
+    if not memory or memory.deleted_at:
+        abort(404, description="Memory not found")
+    require_workspace_access(g.agent.id, memory.workspace_id)
+    upload = request.files.get("file")
+    if not upload or not upload.filename:
+        uploads = [item for item in request.files.getlist("uploads") if item and item.filename]
+        upload = uploads[0] if uploads else None
+    if not upload or not upload.filename:
+        abort(400, description="Upload one replacement file using the 'file' or 'uploads' multipart field")
+    tags = form_tags() if "tags" in request.form else None
+    try:
+        memory, asset = DocumentIngestionService().replace_memory_asset(
+            memory,
+            upload,
+            actor_type="agent",
+            actor_id=g.agent.id,
+            title=request.form.get("title", "").strip() or None,
+            tags=tags,
+            mode=request.form.get("ingest_mode", "full"),
+            chunk_size=form_int("chunk_size", 4000),
+        )
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    return jsonify({"memory": serialize_memory(memory), "asset": serialize_asset(asset)})
 
 
 @api_bp.post("/memory/search")

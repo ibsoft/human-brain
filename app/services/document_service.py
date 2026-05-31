@@ -16,7 +16,8 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".
 
 
 class DocumentIngestionService:
-    def ingest_uploads(self, uploads, base_payload, actor_id=None, mode="all", chunk_size=4000):
+    def ingest_uploads(self, uploads, base_payload, actor_type="user", actor_id=None, mode="all", chunk_size=4000):
+        mode = self._normalize_mode(mode)
         created = []
         for upload in uploads:
             if not upload or not upload.filename:
@@ -24,11 +25,76 @@ class DocumentIngestionService:
             stored_path = self._save(upload)
             payloads = self._payloads_for_file(stored_path, upload.mimetype, base_payload, mode, chunk_size)
             for payload in payloads:
-                memory, _ = MemoryService().add_memory(payload, actor_type="user", actor_id=actor_id)
+                memory, _ = MemoryService().add_memory(payload, actor_type=actor_type, actor_id=actor_id)
                 asset = self._create_asset(memory, stored_path, upload.filename, upload.mimetype, payload.get("_asset_type", "document"), payload.get("_asset_text"))
                 self._attach_asset_url(memory, asset)
                 created.append(memory)
         return created
+
+    def replace_memory_asset(self, memory, upload, actor_type="agent", actor_id=None, title=None, tags=None, mode="full", chunk_size=4000):
+        if not upload or not upload.filename:
+            raise ValueError("Upload one replacement file")
+        asset = MemoryAsset.query.filter_by(memory_id=memory.id).order_by(MemoryAsset.id.asc()).first()
+        if not asset:
+            raise ValueError("Memory has no uploaded asset to replace")
+        mode = self._normalize_mode(mode)
+        if mode == "chunks":
+            raise ValueError("Replacing an asset updates one memory; upload chunked documents as new memories")
+        old_path = Path(asset.stored_path)
+        stored_path = self._save(upload)
+        base_payload = {
+            "agent_id": memory.agent_id,
+            "workspace_id": memory.workspace_id,
+            "title": title or memory.title,
+            "memory_type": memory.memory_type,
+            "tags": tags if tags is not None else list(memory.tags or []),
+            "importance_score": memory.importance_score,
+            "trust_score": memory.trust_score,
+            "sensitivity_level": memory.sensitivity_level,
+            "visibility": memory.visibility,
+            "confirmed": memory.confirmed,
+            "source": memory.source or "upload",
+            "storage_reason": f"Replaced uploaded file with {stored_path.name}.",
+        }
+        payload = self._payloads_for_file(stored_path, upload.mimetype, base_payload, "full", chunk_size)[0]
+        memory.title = payload.get("title") or memory.title
+        memory.content = payload["content"]
+        memory.summary = payload.get("summary")
+        memory.memory_type = payload.get("memory_type") or memory.memory_type
+        memory.tags = payload.get("tags") or []
+        memory.storage_reason = payload.get("storage_reason") or base_payload["storage_reason"]
+        memory.content_hash = sha256_text(memory.content.strip())
+        asset_type = payload.get("_asset_type", "document")
+        vector, vector_hash, metadata = self._asset_vector_for(asset_type, stored_path, upload.mimetype, payload.get("_asset_text"), memory.content)
+        asset.asset_type = asset_type
+        asset.original_filename = upload.filename
+        asset.stored_path = str(stored_path)
+        asset.content_type = upload.mimetype
+        asset.vector_hash = vector_hash
+        asset.vector_dim = len(vector) if vector else None
+        asset.vector = vector
+        asset.asset_metadata = metadata
+        db.session.commit()
+        self._attach_asset_url(memory, asset)
+        try:
+            if old_path.exists() and old_path != stored_path:
+                old_path.unlink()
+        except OSError:
+            current_app.logger.warning("Could not remove replaced asset file: %s", old_path)
+        try:
+            from app.services.audit_service import AuditService
+
+            AuditService.log("memory.asset_replaced", actor_type, actor_id, memory.workspace_id, "memory", memory.id)
+            db.session.commit()
+        except Exception:
+            current_app.logger.exception("Could not audit uploaded asset replacement")
+        try:
+            from app.services.correlation_service import CorrelationService
+
+            CorrelationService().correlate_memory(memory)
+        except Exception:
+            current_app.logger.exception("Could not correlate replaced uploaded asset memory")
+        return memory, asset
 
     def _save(self, upload):
         upload_dir = Path(current_app.config["MEMORY_UPLOAD_DIR"])
@@ -95,14 +161,16 @@ class DocumentIngestionService:
             ]
         return [{**common, "title": common.get("title") or path.name, "content": text}]
 
+    def _normalize_mode(self, mode):
+        value = str(mode or "full").strip().lower()
+        if value in {"all", "full", "whole", "single"}:
+            return "full"
+        if value in {"chunks", "chunk", "chunked"}:
+            return "chunks"
+        return "full"
+
     def _create_asset(self, memory, path, original_filename, mimetype, asset_type, asset_text=None):
-        metadata = {}
-        vector = None
-        vector_hash = None
-        if asset_type == "image":
-            vector, vector_hash, metadata = AssetVectorService().image_vector(path)
-        else:
-            vector, vector_hash, metadata = AssetVectorService().document_vector(asset_text or memory.content, path)
+        vector, vector_hash, metadata = self._asset_vector_for(asset_type, path, mimetype, asset_text, memory.content)
         db.session.add(
             asset := MemoryAsset(
                 memory_id=memory.id,
@@ -125,6 +193,11 @@ class DocumentIngestionService:
         except Exception:
             current_app.logger.exception("Could not correlate uploaded asset memory")
         return asset
+
+    def _asset_vector_for(self, asset_type, path, mimetype, asset_text=None, fallback_text=""):
+        if asset_type == "image":
+            return AssetVectorService().image_vector(path)
+        return AssetVectorService().document_vector(asset_text or fallback_text, path)
 
     def _attach_asset_url(self, memory, asset):
         url = asset_url(asset, external=True)

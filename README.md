@@ -430,6 +430,7 @@ Set the app URL once before running the examples:
 ```bash
 export HUMAN_BRAIN_URL=http://localhost:5000
 export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
+export HUMAN_BRAIN_WORKSPACE_ID=1
 ```
 
 Store memory:
@@ -450,6 +451,61 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/add" \
     "confirmed": true
   }'
 ```
+
+Upload a document as one memory:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Reference document" \
+  -F "memory_type=technical_notes" \
+  -F "tags=reference,upload" \
+  -F "confirmed=true" \
+  -F "ingest_mode=full" \
+  -F "uploads=@/path/to/reference.pdf"
+```
+
+Upload a long document as searchable chunks:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Long project report" \
+  -F "memory_type=project" \
+  -F "tags=project,report" \
+  -F "confirmed=true" \
+  -F "ingest_mode=chunks" \
+  -F "chunk_size=4000" \
+  -F "uploads=@/path/to/report.docx"
+```
+
+Upload an image as a vision memory:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Profile image" \
+  -F "memory_type=vision" \
+  -F "tags=profile,image" \
+  -F "confirmed=true" \
+  -F "uploads=@/path/to/profile.jpg"
+```
+
+`/api/v1/memory/upload` accepts multipart form data. Use `uploads` for one or more files, or `file` for a single file. Documents support `ingest_mode=full` for one memory per file and `ingest_mode=chunks` for one memory per extracted text chunk. Uploaded assets are returned in `memory.assets[]` with tokenized `url` values.
+
+Replace the actual file behind an uploaded document or image memory:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "title=Updated reference document" \
+  -F "file=@/path/to/replacement.pdf"
+```
+
+Asset replacement keeps the memory ID and tokenized asset URL stable, replaces the stored file, refreshes extracted document text or image metadata, refreshes vectors, and reruns correlations. Chunked document replacement updates one existing memory; upload a new chunked document when the chunk boundaries need to change.
 
 Create and consolidate a session:
 
