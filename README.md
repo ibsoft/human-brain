@@ -110,6 +110,7 @@ cp .env.example .env
 
 ```env
 FLASK_ENV=production
+HUMAN_BRAIN_URL=https://human-brain.example.lan
 SECRET_KEY=replace-this-with-a-long-random-secret
 DATABASE_URL=postgresql+psycopg://human_brain:human_brain@postgres:5432/human_brain
 REDIS_URL=redis://redis:6379/2
@@ -411,6 +412,8 @@ Operational settings are managed in the UI at `/settings`:
 
 Environment variables are for secrets, deployment defaults, database/Redis URLs, and filesystem paths.
 
+Set **Public base URL** in Settings, or `HUMAN_BRAIN_URL` in `.env`, to the externally reachable reverse-proxy URL. Tokenized uploaded file/image links use this value, for example `https://human-brain.ibnet.lan/memory-assets/...`, instead of the internal Gunicorn host.
+
 ## API Authentication
 
 Agents authenticate with:
@@ -683,6 +686,107 @@ The benchmark outputs average latency, p95, p99, and queries per second.
 - Run `gunicorn -c gunicorn.conf.py manage:app`.
 - Run workers with `celery -A manage.celery worker --loglevel=INFO`.
 - Never log raw API keys, passwords, or tokens.
+
+## Self-Signed HTTPS Certificate
+
+For an internal LAN deployment such as `https://human-brain.ibnet.lan`, use a local CA and sign the nginx server certificate with it. Trust the CA certificate on clients and agent hosts.
+
+Create a local CA:
+
+```bash
+sudo mkdir -p /etc/nginx/ssl/ibnet
+cd /etc/nginx/ssl/ibnet
+
+sudo openssl genrsa -out ibnet-ca.key 4096
+sudo openssl req -x509 -new -nodes -key ibnet-ca.key -sha256 -days 3650 \
+  -out ibnet-ca.crt \
+  -subj "/CN=IBNET Local CA"
+```
+
+Create the server certificate request with Subject Alternative Names:
+
+```bash
+sudo tee human-brain-san.cnf >/dev/null <<'EOF'
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = req_ext
+
+[dn]
+CN = human-brain.ibnet.lan
+
+[req_ext]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = human-brain.ibnet.lan
+DNS.2 = localhost
+IP.1 = 127.0.0.1
+EOF
+
+sudo openssl genrsa -out ibnet.key 2048
+sudo openssl req -new -key ibnet.key -out ibnet.csr -config human-brain-san.cnf
+```
+
+Sign the server certificate:
+
+```bash
+sudo openssl x509 -req -in ibnet.csr \
+  -CA ibnet-ca.crt -CAkey ibnet-ca.key -CAcreateserial \
+  -out ibnet.crt -days 825 -sha256 \
+  -extensions req_ext -extfile human-brain-san.cnf
+```
+
+Use the server certificate and key in nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name human-brain.ibnet.lan;
+
+    ssl_certificate     /etc/nginx/ssl/ibnet/ibnet.crt;
+    ssl_certificate_key /etc/nginx/ssl/ibnet/ibnet.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:5680;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+Trust the CA on Ubuntu/Debian clients and agent hosts:
+
+```bash
+sudo cp /etc/nginx/ssl/ibnet/ibnet-ca.crt /usr/local/share/ca-certificates/ibnet-ca.crt
+sudo update-ca-certificates
+```
+
+Agent runtime trust options:
+
+```bash
+export REQUESTS_CA_BUNDLE=/etc/nginx/ssl/ibnet/ibnet-ca.crt
+export NODE_EXTRA_CA_CERTS=/etc/nginx/ssl/ibnet/ibnet-ca.crt
+```
+
+Test:
+
+```bash
+curl https://human-brain.ibnet.lan/login
+curl --cacert /etc/nginx/ssl/ibnet/ibnet-ca.crt https://human-brain.ibnet.lan/login
+```
+
+Set the public URL so generated asset links use the external HTTPS host:
+
+```env
+HUMAN_BRAIN_URL=https://human-brain.ibnet.lan
+SESSION_COOKIE_SECURE=true
+```
+
+Do not copy or share `ibnet.key` or `ibnet-ca.key`; they are private keys.
 
 ## PostgreSQL, Redis, Celery Production Setup
 

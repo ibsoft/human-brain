@@ -493,7 +493,7 @@ def serialize_asset(asset):
 
 def asset_url(asset, external=False):
     path = url_for("main.memory_asset", asset_token=asset.public_token) if has_request_context() else f"/memory-assets/{asset.public_token}"
-    configured_base = current_app.config.get("HUMAN_BRAIN_URL")
+    configured_base = (SettingsService.get("public_base_url", current_app.config.get("HUMAN_BRAIN_URL", "")) or "").rstrip("/")
     if external and configured_base:
         return f"{configured_base}{path}"
     if has_request_context():

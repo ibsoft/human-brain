@@ -180,7 +180,7 @@ Common multipart fields:
 - `ingest_mode`: `full` or `chunks`.
 - `chunk_size`: characters per chunk when `ingest_mode=chunks`; default `4000`.
 
-The response contains `count` and `memories[]`. Each memory includes `assets[]`; use `assets[].url` to open the tokenized file/image URL from remote clients when `HUMAN_BRAIN_URL` is configured on the server.
+The response contains `count` and `memories[]`. Each memory includes `assets[]`; use `assets[].url` to open the tokenized file/image URL from remote clients. Operators should configure Settings -> Public base URL, or `.env` `HUMAN_BRAIN_URL`, to the externally reachable reverse-proxy URL.
 
 Replace the actual uploaded file for an existing document/image memory:
 

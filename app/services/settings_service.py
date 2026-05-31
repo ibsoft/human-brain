@@ -11,6 +11,12 @@ DEFAULT_SETTINGS = {
         "value": True,
         "description": "Keep data local and disable external sharing by default.",
     },
+    "public_base_url": {
+        "value": "",
+        "env": "HUMAN_BRAIN_URL",
+        "value_type": "string",
+        "description": "Public external URL used in generated asset links, for example https://human-brain.example.lan.",
+    },
     "auto_store_consolidated_memory": {
         "value": False,
         "description": "Automatically store consolidated session findings without manual approval.",
@@ -234,6 +240,8 @@ class SettingsService:
     def ensure_defaults():
         for key, payload in DEFAULT_SETTINGS.items():
             value = default_value(key)
+            if key == "public_base_url" and has_app_context():
+                value = current_app.config.get("HUMAN_BRAIN_URL", value)
             if key == "embedding_model" and has_app_context():
                 value = current_app.config.get("EMBEDDING_MODEL", value)
             if not AppSetting.query.filter_by(key=key).first():
@@ -251,6 +259,8 @@ class SettingsService:
     def get(key, default=None):
         setting = AppSetting.query.filter_by(key=key).first()
         if setting is None:
+            if key == "public_base_url" and has_app_context():
+                return current_app.config.get("HUMAN_BRAIN_URL", default)
             if key == "embedding_model" and has_app_context():
                 return current_app.config.get("EMBEDDING_MODEL", default)
             return default_value(key) if key in DEFAULT_SETTINGS else default
