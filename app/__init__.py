@@ -1,3 +1,4 @@
+import json
 import logging
 import sys
 from datetime import datetime
@@ -80,7 +81,7 @@ def register_agent_api_logging(app):
                 "files": [file.filename for files in request.files.lists() for file in files[1]],
             }
         else:
-            body = _redact_api_log_text(request.get_data(cache=True, as_text=True)[:4000])
+            body = _api_log_payload(request.get_data(cache=True, as_text=True)[:4000])
         g.agent_log_request = {
             "method": request.method,
             "path": request.path,
@@ -108,9 +109,10 @@ def register_agent_api_logging(app):
                 {
                     "status": response.status_code,
                     "agent_id": getattr(getattr(g, "agent", None), "id", None),
-                    "response": _redact_api_log_text(response_body),
+                    "response": _api_log_payload(response_body),
                 }
             )
+            _capture_agent_session_exchange(record)
             AgentLogService().write(record, level=level)
         except Exception:
             app.logger.exception("Could not write agent API JSONL log")
@@ -121,6 +123,94 @@ def _redact_api_log_text(value):
     if not value:
         return value
     return str(value).replace("X-API-Key", "X-API-Key-REDACTED")
+
+
+def _api_log_payload(value):
+    if not value:
+        return value
+    text = _redact_api_log_text(value)
+    try:
+        return _redact_api_log_value(json.loads(text))
+    except ValueError:
+        return text
+
+
+def _redact_api_log_value(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            if str(key).lower() in {"api_key", "x-api-key", "password", "token", "secret"}:
+                redacted[key] = "REDACTED"
+            else:
+                redacted[key] = _redact_api_log_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_api_log_value(item) for item in value]
+    if isinstance(value, str):
+        return _redact_api_log_text(value)
+    return value
+
+
+def _capture_agent_session_exchange(record):
+    from app.extensions import db
+    from app.models import Session, SessionMessage
+    from app.services.settings_service import SettingsService
+
+    if not SettingsService.get("agent_auto_sessions", True):
+        return
+    if str(record.get("path") or "").startswith("/api/v1/session/"):
+        return
+    session_id = _agent_log_session_id(record)
+    if not session_id:
+        return
+    session = db.session.get(Session, session_id)
+    if not session or session.agent_id != record.get("agent_id") or session.status == "ended":
+        return
+    request_content = _session_api_content(record, "request", record.get("body"))
+    response_content = _session_api_content(record, "response", record.get("response"))
+    db.session.add(
+        SessionMessage(
+            session_id=session.id,
+            role="user",
+            content=request_content,
+            meta={"source": "agent_api_auto_capture", "path": record.get("path"), "method": record.get("method")},
+        )
+    )
+    db.session.add(
+        SessionMessage(
+            session_id=session.id,
+            role="assistant",
+            content=response_content,
+            meta={"source": "agent_api_auto_capture", "path": record.get("path"), "status": record.get("status")},
+        )
+    )
+    db.session.commit()
+
+
+def _agent_log_session_id(record):
+    from urllib.parse import parse_qs
+
+    body = record.get("body")
+    candidates = []
+    if isinstance(body, dict):
+        candidates.append(body.get("session_id"))
+        form = body.get("form")
+        if isinstance(form, dict):
+            candidates.append(form.get("session_id"))
+    query = parse_qs(record.get("query") or "")
+    candidates.extend(query.get("session_id", []))
+    for candidate in candidates:
+        try:
+            return int(candidate)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _session_api_content(record, label, payload):
+    body = json.dumps(payload, ensure_ascii=False, default=str, indent=2) if not isinstance(payload, str) else payload
+    body = body[:4000]
+    return f"API {label}: {record.get('method')} {record.get('path')}\n{body}"
 
 
 def register_blueprints(app):

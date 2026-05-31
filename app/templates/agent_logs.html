@@ -23,7 +23,7 @@
         <td>{{ item.method }}</td>
         <td>{{ item.path }}</td>
         <td>{{ item.status }}</td>
-        <td><code>{{ item._file }}:{{ item._line }}</code><script type="application/json" class="row-detail-json">{{ item|tojson }}</script></td>
+        <td><code>{{ item._file }}:{{ item._line }}</code><script type="application/json" class="row-detail-json">{{ item._detail|tojson }}</script></td>
       </tr>
       {% else %}
       <tr><td colspan="7" class="text-secondary">No agent API logs found.</td></tr>

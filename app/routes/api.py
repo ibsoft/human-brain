@@ -87,6 +87,7 @@ def memory_upload():
     base_payload = {
         "agent_id": g.agent.id,
         "workspace_id": workspace_id,
+        "session_id": request.form.get("session_id", type=int),
         "title": request.form.get("title", "").strip(),
         "memory_type": request.form.get("memory_type", "long-term").strip() or "long-term",
         "tags": form_tags(),

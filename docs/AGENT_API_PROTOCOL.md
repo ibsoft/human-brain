@@ -30,6 +30,7 @@ Agents should treat Human-Brain as the only durable source of truth for remember
 Agents should store new durable facts, decisions, tasks, preferences, corrections, and session outcomes back into Human-Brain. When information changes, agents should update, archive, delete, or forget stale memories instead of silently relying on old facts.
 
 Agents should use sessions for meaningful work. Start a session before a multi-turn task, include `session_id` on memories and context requests when relevant, add important messages, end the session, then consolidate it into durable memories.
+When Settings -> Require agents to use sessions is enabled, Human-Brain also auto-captures request/response pairs into `session_messages` for agent API calls that include a valid numeric `session_id`.
 
 Use `docs/agents/SKILL.md` as the full agent operating instruction pack. It covers search, add, update, delete, forget, sessions, consolidation, workspaces, correlations, vision, assets, health checks, and answer rules.
 
@@ -144,6 +145,7 @@ Agents upload files with multipart form data, not JSON. Do not send `Content-Typ
 curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "session_id=$SESSION_ID" \
   -F "title=Reference document" \
   -F "memory_type=technical_notes" \
   -F "confirmed=true" \
@@ -157,6 +159,7 @@ For long documents, use chunked ingestion:
 curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "session_id=$SESSION_ID" \
   -F "title=Long report" \
   -F "memory_type=project" \
   -F "ingest_mode=chunks" \
@@ -169,6 +172,7 @@ Use the `uploads` field for one or more files, or `file` for a single file. `ing
 Common multipart fields:
 
 - `workspace_id`: required workspace for the stored memories.
+- `session_id`: optional active numeric session ID. When present, uploads are linked to the session and auto-captured in the session replay.
 - `uploads`: one or more files.
 - `file`: optional single-file alias.
 - `title`: base title. Chunked documents append `- chunk N`.
@@ -208,6 +212,18 @@ SESSION_ID=$(curl -s -X POST "$HUMAN_BRAIN_URL/api/v1/session/start" \
   -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"workspace_id\":$HUMAN_BRAIN_WORKSPACE_ID,\"title\":\"User task\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 ```
+
+Carry the returned numeric `SESSION_ID` through all related calls:
+
+```json
+{
+  "workspace_id": 1,
+  "session_id": 123,
+  "query": "Search question"
+}
+```
+
+Human-Brain only knows which session to write when the request includes `session_id`, or when the agent explicitly calls `/api/v1/session/add-message`. Starting a session alone creates an empty session until messages or session-aware API calls are added.
 
 Add important messages:
 
