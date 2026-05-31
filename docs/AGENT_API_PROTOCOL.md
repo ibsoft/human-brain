@@ -9,6 +9,7 @@ Set these once in the agent environment before calling the API:
 ```bash
 export HUMAN_BRAIN_URL=http://localhost:5000
 export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
+export HUMAN_BRAIN_WORKSPACE_ID=1
 ```
 
 ## Authentication
@@ -127,6 +128,73 @@ The context builder applies the Memory Firewall. High/secret memories are blocke
 
 Uploaded files and images become memories with assets.
 
+Endpoint:
+
+```http
+POST /api/v1/memory/upload
+```
+
+Agents upload files with multipart form data, not JSON. Do not send `Content-Type: application/json` for this endpoint; let the HTTP client set the multipart boundary.
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Reference document" \
+  -F "memory_type=technical_notes" \
+  -F "confirmed=true" \
+  -F "ingest_mode=full" \
+  -F "uploads=@/path/to/reference.pdf"
+```
+
+For long documents, use chunked ingestion:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Long report" \
+  -F "memory_type=project" \
+  -F "ingest_mode=chunks" \
+  -F "chunk_size=4000" \
+  -F "uploads=@/path/to/report.docx"
+```
+
+Use the `uploads` field for one or more files, or `file` for a single file. `ingest_mode=full` creates one memory per document. `ingest_mode=chunks` creates one memory per text chunk. Images are stored as image assets and usually use `memory_type=vision`.
+
+Common multipart fields:
+
+- `workspace_id`: required workspace for the stored memories.
+- `uploads`: one or more files.
+- `file`: optional single-file alias.
+- `title`: base title. Chunked documents append `- chunk N`.
+- `memory_type`: defaults to `long-term`; use `vision` for uploaded images.
+- `tags`: comma-separated tags.
+- `confirmed`: `true` or `false`.
+- `sensitivity_level`: `normal`, `high`, or `secret`.
+- `importance_score` and `trust_score`: numbers from `0` to `1`.
+- `ingest_mode`: `full` or `chunks`.
+- `chunk_size`: characters per chunk when `ingest_mode=chunks`; default `4000`.
+
+The response contains `count` and `memories[]`. Each memory includes `assets[]`; use `assets[].url` to open the tokenized file/image URL from remote clients when `HUMAN_BRAIN_URL` is configured on the server.
+
+Replace the actual uploaded file for an existing document/image memory:
+
+```http
+POST /api/v1/memory/{memory_id}/asset/replace
+```
+
+Use multipart form data:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "title=Updated reference document" \
+  -F "file=@/path/to/replacement.pdf"
+```
+
+The replacement endpoint keeps the existing memory ID and tokenized asset URL, replaces the stored file, refreshes extracted text or image metadata, refreshes asset vectors and FAISS memory vectors, and reruns correlations. Use `title` or `tags` multipart fields to update those memory fields during replacement. Do not use `ingest_mode=chunks` for replacement; upload a new chunked document when chunk boundaries need to change.
+
 File memories:
 
 - extract text from TXT, LOG, MD, CSV, JSON, YAML, XML
@@ -138,7 +206,7 @@ File memories:
 Image memories:
 
 - store the original image locally
-- expose an authenticated asset URL
+- expose a tokenized asset URL
 - store metadata such as width, height, color profile, dominant color
 - store a local visual vector/fingerprint
 - correlate with other images, files, notes, and text memories through tags, metadata, and vector similarity

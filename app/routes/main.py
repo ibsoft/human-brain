@@ -144,6 +144,7 @@ def web_add_memory():
         created = DocumentIngestionService().ingest_uploads(
             uploads,
             payload,
+            actor_type="user",
             actor_id=current_user.id,
             mode=request.form.get("ingest_mode", "all"),
             chunk_size=int(request.form.get("chunk_size", 4000) or 4000),

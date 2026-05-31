@@ -36,11 +36,13 @@ export HUMAN_BRAIN_WORKSPACE_ID=1
 
 The API key identifies the agent. If `agent_id` is sent, it must match the API key owner. Most requests can omit `agent_id`; the server fills it from the API key.
 
-Every request uses:
+JSON requests use:
 
 ```bash
 -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
+
+Multipart upload requests use only the API key header; let `curl -F` or the HTTP client set the multipart `Content-Type` boundary.
 
 ## Source-Of-Truth Workflow
 
@@ -318,9 +320,86 @@ Vision memories use `memory_type = "vision"` and can correlate with other image,
 
 ## Files And Assets
 
-Uploaded files/images are primarily added through the web UI in the current app. Agents can retrieve and reason over resulting memory assets through search results and memory serialization:
+Agents upload documents and images with multipart form data:
 
-- `assets[].url` points to the authenticated local asset path.
+Endpoint:
+
+```http
+POST /api/v1/memory/upload
+```
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Architecture notes" \
+  -F "memory_type=technical_notes" \
+  -F "tags=architecture,upload" \
+  -F "confirmed=true" \
+  -F "ingest_mode=full" \
+  -F "uploads=@/path/to/notes.pdf"
+```
+
+Use `ingest_mode=full` when the whole document should become one memory.
+
+Use `ingest_mode=chunks` for long documents so each chunk is independently searchable:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Large project report" \
+  -F "memory_type=project" \
+  -F "ingest_mode=chunks" \
+  -F "chunk_size=4000" \
+  -F "uploads=@/path/to/report.docx"
+```
+
+Upload images the same way. Image uploads create `vision` memories by default when `memory_type=vision` is sent:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "title=Profile picture" \
+  -F "memory_type=vision" \
+  -F "tags=profile,image" \
+  -F "confirmed=true" \
+  -F "uploads=@/path/to/profile.jpg"
+```
+
+Supported text extraction includes TXT, Markdown, JSON, CSV, LOG, YAML, XML, PDF, DOCX, and XLSX/XLSM when the parser dependencies are installed. Unsupported files are still stored as tokenized assets with attachment metadata.
+
+Multipart fields:
+
+- `workspace_id`: required.
+- `uploads`: one or more files.
+- `file`: single-file alias.
+- `title`: base title.
+- `memory_type`: use `technical_notes`, `project`, `facts`, `tasks`, or `vision` as appropriate.
+- `tags`: comma-separated tags.
+- `confirmed`: `true` when the file is trusted enough to use directly.
+- `sensitivity_level`: `normal`, `high`, or `secret`.
+- `importance_score` and `trust_score`: `0` to `1`.
+- `ingest_mode`: `full` or `chunks`.
+- `chunk_size`: character count for document chunks; default `4000`.
+
+The response returns `count` and `memories[]`. Each returned memory includes `assets[]` with tokenized `url` values. Use those URLs when the user or a remote agent needs to inspect the original file or image.
+
+Replace the actual file behind an existing uploaded document/image memory when the file changed but the memory identity should stay the same:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -F "title=Updated architecture notes" \
+  -F "file=@/path/to/replacement.pdf"
+```
+
+Replacement keeps the memory ID and tokenized asset URL stable, replaces the stored file, refreshes extracted text or image metadata, refreshes vectors, and reruns correlations. Use this instead of uploading a second memory when the original file is being corrected or superseded. For chunked documents, replacement updates one existing chunk memory; upload a new chunked document if the document needs to be split again.
+
+Agents can retrieve and reason over resulting memory assets through search results and memory serialization:
+
+- `assets[].url` points to the tokenized asset URL.
 - File memories include extracted text when parsers are installed.
 - Image memories include metadata and local visual vectors.
 - Do not infer facts from a file or image unless Human-Brain has stored extracted content, metadata, or a saved vision memory for it.

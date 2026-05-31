@@ -88,6 +88,111 @@ def test_image_upload_memory_uses_tokenized_asset_url(client, app):
     Path(stored_path).unlink(missing_ok=True)
 
 
+def test_agent_upload_document_as_full_memory(client, app, api_headers):
+    res = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Agent full document",
+            "memory_type": "technical_notes",
+            "tags": "agent,document",
+            "confirmed": "true",
+            "ingest_mode": "full",
+            "uploads": (BytesIO(b"Line one\nLine two\n"), "notes.txt"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert res.status_code == 201
+    payload = res.get_json()
+    assert payload["count"] == 1
+    memory = payload["memories"][0]
+    assert memory["title"] == "Agent full document"
+    assert "Line one\nLine two" in memory["content"]
+    assert memory["source"] == "upload"
+    assert memory["assets"][0]["url"]
+    with app.app_context():
+        stored_path = MemoryAsset.query.filter_by(memory_id=memory["id"]).one().stored_path
+    Path(stored_path).unlink(missing_ok=True)
+
+
+def test_agent_upload_document_as_chunks(client, app, api_headers):
+    text = "\n".join(f"line {index} alpha beta gamma" for index in range(120)).encode()
+    res = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Agent chunked document",
+            "memory_type": "technical_notes",
+            "ingest_mode": "chunks",
+            "chunk_size": "500",
+            "uploads": (BytesIO(text), "large.txt"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert res.status_code == 201
+    payload = res.get_json()
+    assert payload["count"] > 1
+    assert all("chunk" in memory["title"] for memory in payload["memories"])
+    assert all(memory["assets"] for memory in payload["memories"])
+    with app.app_context():
+        paths = {asset.stored_path for asset in MemoryAsset.query.filter(MemoryAsset.memory_id.in_([memory["id"] for memory in payload["memories"]])).all()}
+    for path in paths:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_agent_replace_uploaded_document_asset(client, app, api_headers):
+    upload = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Replaceable document",
+            "memory_type": "technical_notes",
+            "confirmed": "true",
+            "ingest_mode": "full",
+            "uploads": (BytesIO(b"old file content"), "old.txt"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+    memory = upload.get_json()["memories"][0]
+    old_url = memory["assets"][0]["url"]
+    with app.app_context():
+        asset = MemoryAsset.query.filter_by(memory_id=memory["id"]).one()
+        old_token = asset.public_token
+        old_path = asset.stored_path
+
+    replace = client.post(
+        f"/api/v1/memory/{memory['id']}/asset/replace",
+        data={
+            "title": "Replaced document",
+            "file": (BytesIO(b"new file content"), "new.txt"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert replace.status_code == 200
+    payload = replace.get_json()
+    assert payload["memory"]["id"] == memory["id"]
+    assert payload["memory"]["title"] == "Replaced document"
+    assert "new file content" in payload["memory"]["content"]
+    assert "old file content" not in payload["memory"]["content"]
+    assert payload["asset"]["url"] == old_url
+    with app.app_context():
+        asset = MemoryAsset.query.filter_by(memory_id=memory["id"]).one()
+        assert asset.public_token == old_token
+        assert asset.original_filename == "new.txt"
+        new_path = asset.stored_path
+        assert old_path != new_path
+        assert not Path(old_path).exists()
+    asset_res = client.get(old_url)
+    assert asset_res.status_code == 200
+    assert asset_res.data == b"new file content"
+    Path(new_path).unlink(missing_ok=True)
+
+
 def test_viewer_cannot_create_agent(client, app):
     with app.app_context():
         admin = User.query.filter_by(email="admin@example.com").first()

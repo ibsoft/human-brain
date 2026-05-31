@@ -26,7 +26,7 @@
     <div class="col-md-2"><input class="form-control" name="trust_score" type="number" step="0.1" min="0" max="1" value="0.5"></div>
     <div class="col-md-2"><select class="form-select" name="sensitivity_level"><option>normal</option><option>high</option><option>secret</option></select></div>
     <div class="col-md-4 memory-mode-field mode-file mode-image"><input id="memoryUploadInput" class="form-control" type="file" name="uploads" multiple accept=".txt,.md,.markdown,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.css,image/*,.pdf,.docx"></div>
-    <div class="col-md-2 memory-mode-field mode-file"><select class="form-select" name="ingest_mode"><option value="all">Store whole file</option><option value="chunks">Store in chunks</option></select></div>
+    <div class="col-md-2 memory-mode-field mode-file"><select class="form-select" name="ingest_mode"><option value="full">Store whole file</option><option value="chunks">Store in chunks</option></select></div>
     <div class="col-md-2 memory-mode-field mode-file"><input class="form-control" name="chunk_size" type="number" min="500" step="500" value="4000" placeholder="Chunk size"></div>
     <div class="col-md-4 memory-mode-field mode-image"><div class="upload-hint"><i class="fa-solid fa-vector-square"></i> Image uploads store a local visual vector for correlation.</div></div>
     <div class="col-md-2"><div class="form-check form-switch mt-2"><input class="form-check-input" name="confirmed" type="checkbox"><label class="form-check-label">Confirm</label></div></div>
