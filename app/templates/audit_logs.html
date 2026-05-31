@@ -46,7 +46,7 @@
         <td><span class="text-secondary">{{ log.ip_address or "" }}</span></td>
         <td><code class="audit-meta">{{ log.meta }}</code></td>
         <td class="text-end">
-          <form method="post" action="{{ url_for('main.delete_audit_log', log_id=log.id) }}" onsubmit="return confirm('Delete this audit log entry?')">
+          <form method="post" action="{{ url_for('main.delete_audit_log', log_id=log.id) }}" data-confirm-modal data-confirm-title="Delete audit log" data-confirm-message="Delete this audit log entry? This action cannot be undone." data-confirm-text="Delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i></button>
           </form>

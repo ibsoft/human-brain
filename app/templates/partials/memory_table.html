@@ -27,7 +27,7 @@
       {% endif %}
       <form class="d-inline" method="post" action="{{ url_for('main.web_archive_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-warning" title="Archive"><i class="fa-solid fa-box-archive"></i></button></form>
       <form class="d-inline" method="post" action="{{ url_for('main.web_forget_memory', memory_id=memory.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" title="Forget"><i class="fa-solid fa-eraser"></i></button></form>
-      <form class="d-inline" method="post" action="{{ url_for('main.web_delete_memory', memory_id=memory.id) }}" onsubmit="return confirm('Permanently delete this memory?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button></form>
+      <form class="d-inline" method="post" action="{{ url_for('main.web_delete_memory', memory_id=memory.id) }}" data-confirm-modal data-confirm-title="Delete memory" data-confirm-message="Permanently delete memory {{ memory.id }}? This action cannot be undone." data-confirm-text="Delete"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button></form>
     </td>
   </tr>
   {% else %}

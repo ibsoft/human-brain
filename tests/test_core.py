@@ -424,6 +424,8 @@ def test_bulk_delete_memories_from_current_page(client, app, api_headers):
     page = client.get("/memories")
     assert page.status_code == 200
     assert b'id="bulkMemoryDeleteForm"' in page.data
+    assert b'id="confirmActionModal"' in page.data
+    assert b"confirm(" not in page.data
     deleted = client.post(
         "/memories/delete-hard-bulk",
         data={"memory_ids": [str(first), str(second)]},
@@ -803,18 +805,20 @@ def test_duplicates_page_renders_duplicate_groups(client, app, api_headers):
     base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
     client.post(
         "/api/v1/memory/add",
-        json={**base, "content": "Duplicate detector should group similar PostgreSQL backup notes.", "memory_type": "technical_notes"},
+        json={**base, "content": "Alpha bravo charlie delta echo foxtrot golf hotel note a.", "memory_type": "technical_notes"},
         headers=api_headers,
     )
     client.post(
         "/api/v1/memory/add",
-        json={**base, "content": "Duplicate detector should group similar PostgreSQL backup notes with extra words.", "memory_type": "technical_notes"},
+        json={**base, "content": "Alpha bravo charlie delta echo foxtrot golf hotel note b.", "memory_type": "technical_notes"},
         headers=api_headers,
     )
     client.post("/login", data={"email": "admin@example.com", "password": "password"})
     res = client.get("/duplicates")
     assert res.status_code == 200
     assert b"Potential Duplicate Groups" in res.data
+    assert b"2 memories" in res.data
+    assert b"Alpha bravo charlie delta echo foxtrot golf hotel note" in res.data
 
 
 def test_session_consolidation_context_and_audit(client, app, api_headers):

@@ -34,7 +34,7 @@
     </div>
     <div class="d-flex gap-2 mt-3">
       <a class="btn btn-outline-info" href="{{ url_for('main.memories') }}">Memories</a>
-      <form method="post" action="{{ url_for('main.delete_workspace', workspace_id=w.id) }}" onsubmit="return confirm('Delete this workspace and all related records?')">
+      <form method="post" action="{{ url_for('main.delete_workspace', workspace_id=w.id) }}" data-confirm-modal data-confirm-title="Delete workspace" data-confirm-message="Delete this workspace and all related records? This action cannot be undone." data-confirm-text="Delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-danger"><i class="fa-solid fa-trash"></i></button>
       </form>

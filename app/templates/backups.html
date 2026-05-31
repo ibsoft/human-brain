@@ -61,7 +61,7 @@
         <td class="text-end">
           <div class="row-actions d-inline-flex gap-2">
             <a class="btn btn-sm btn-outline-info" href="{{ url_for('main.download_backup', filename=backup.name) }}" title="Download"><i class="fa-solid fa-download"></i></a>
-            <form method="post" action="{{ url_for('main.delete_backup', filename=backup.name) }}" onsubmit="return confirm('Delete this backup file?')">
+            <form method="post" action="{{ url_for('main.delete_backup', filename=backup.name) }}" data-confirm-modal data-confirm-title="Delete backup" data-confirm-message="Delete this backup file? This action cannot be undone." data-confirm-text="Delete">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button>
             </form>
