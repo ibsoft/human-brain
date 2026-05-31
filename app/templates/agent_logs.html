@@ -15,7 +15,7 @@
     <table class="table table-dark table-hover align-middle">
       <thead><tr><th>Time</th><th>Level</th><th>Agent</th><th>Method</th><th>Path</th><th>Status</th><th>File</th></tr></thead>
       <tbody>
-      {% for item in logs.items %}
+      {% for item in logs["items"] %}
       <tr data-detail-title="{{ item.method }} {{ item.path }}">
         <td>{{ item.ts }}</td>
         <td><span class="badge text-bg-{{ 'warning' if item.level == 'warning' else 'info' }}">{{ item.level }}</span></td>

@@ -238,6 +238,13 @@ def test_agent_can_list_session_jobs(client, app, api_headers):
     assert any(job["id"] == consolidate.get_json()["job_id"] for job in jobs.get_json()["jobs"])
 
 
+def test_agent_logs_page_renders_empty_state(client):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/agent-logs")
+    assert res.status_code == 200
+    assert b"Agent API Logs" in res.data
+
+
 def test_viewer_cannot_create_agent(client, app):
     with app.app_context():
         admin = User.query.filter_by(email="admin@example.com").first()
