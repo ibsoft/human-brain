@@ -89,6 +89,46 @@ def test_image_upload_memory_uses_tokenized_asset_url(client, app):
     Path(stored_path).unlink(missing_ok=True)
 
 
+def test_duplicate_image_upload_reuses_existing_memory(client, app, api_headers):
+    first = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Duplicate image asset",
+            "memory_type": "vision",
+            "confirmed": "true",
+            "uploads": (BytesIO(b"same-image-bytes"), "logo.jpg"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert first.status_code == 201
+    first_memory = first.get_json()["memories"][0]
+
+    second = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Duplicate image asset",
+            "memory_type": "vision",
+            "confirmed": "true",
+            "uploads": (BytesIO(b"same-image-bytes"), "logo.jpg"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert second.status_code == 201
+    assert second.get_json()["memories"][0]["id"] == first_memory["id"]
+
+    with app.app_context():
+        memories = Memory.query.filter_by(title="Duplicate image asset").all()
+        assets = MemoryAsset.query.filter_by(memory_id=first_memory["id"]).all()
+        assert len(memories) == 1
+        assert len(assets) == 1
+        assert memories[0].trust_score == 0.55
+        Path(assets[0].stored_path).unlink(missing_ok=True)
+
+
 def test_agent_upload_document_as_full_memory(client, app, api_headers):
     res = client.post(
         "/api/v1/memory/upload",

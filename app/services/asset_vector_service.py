@@ -1,7 +1,7 @@
 import math
 from pathlib import Path
 
-from app.utils.hash import sha256_json, sha256_text
+from app.utils.hash import sha256_bytes, sha256_json
 
 
 class AssetVectorService:
@@ -61,7 +61,7 @@ class AssetVectorService:
             "size_bytes": len(data),
             "vector_kind": "file_byte_fingerprint",
         }
-        return vector, sha256_text(Path(path).name + str(len(data)) + str(sum(data[:4096]))), metadata
+        return vector, sha256_bytes(data), metadata
 
     def _fit(self, values, size):
         fitted = list(values)
