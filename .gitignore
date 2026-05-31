@@ -6,7 +6,8 @@ __pycache__/
 .pytest_cache/
 faiss_indexes/*.faiss
 faiss_indexes/*.json
-uploads/snapshots/*
+uploads/
+!uploads/.gitkeep
+!uploads/**/.gitkeep
 logs/*
 backups/
-
