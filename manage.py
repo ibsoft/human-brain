@@ -1,10 +1,25 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from app import create_app
 from app.extensions import celery
 
 app = create_app(os.getenv("FLASK_ENV", "development"))
+
+
+def invoke_app_command(command, args):
+    from click import ClickException
+    from flask.cli import ScriptInfo
+
+    try:
+        app.cli.commands[command].main(args=args, obj=ScriptInfo(create_app=lambda: app), standalone_mode=False)
+    except ClickException as exc:
+        exc.show()
+        sys.exit(exc.exit_code)
 
 
 if __name__ == "__main__":
@@ -29,13 +44,20 @@ if __name__ == "__main__":
                 db.session.commit()
                 print(f"Created admin {email}")
             elif command == "rebuild-index":
-                from flask.cli import ScriptInfo
-
-                app.cli.commands["rebuild-index"].main(args=args, obj=ScriptInfo(create_app=lambda: app), standalone_mode=False)
-            elif command in {"vector-health", "test-search", "benchmark-search", "backup", "restore", "run-worker", "seed-demo-data"}:
-                from flask.cli import ScriptInfo
-
-                app.cli.commands[command].main(args=args, obj=ScriptInfo(create_app=lambda: app), standalone_mode=False)
+                invoke_app_command("rebuild-index", args)
+            elif command in {
+                "vector-health",
+                "test-search",
+                "benchmark-search",
+                "backup",
+                "restore",
+                "run-worker",
+                "seed-demo-data",
+                "seed-sample-data",
+                "purge-sample-data",
+                "rebuild-correlations",
+            }:
+                invoke_app_command(command, args)
             else:
                 print(f"Unknown command: {command}")
                 sys.exit(2)
