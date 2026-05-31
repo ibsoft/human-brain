@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from pathlib import Path
 
@@ -207,27 +208,34 @@ def test_cross_encoder_reranker_reorders_candidates(client, app, api_headers, mo
             }
         )
 
-    def fake_scores(self, query, candidates, settings):
+    def fake_scores(self, query, candidates, settings, wait_for_model=False):
         return {item["memory"].id: (0.95 if item["memory"].id == second else 0.1) for item in candidates}, {}
 
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [
+            {"memory_id": first, "semantic_score": 0.55, "vector_id": 1, "raw_score": 0.55},
+            {"memory_id": second, "semantic_score": 0.52, "vector_id": 2, "raw_score": 0.52},
+        ]
+
     monkeypatch.setattr(RerankerService, "_cross_encoder_scores", fake_scores)
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
     RerankerService._cross_encoder = object()
     RerankerService._cross_encoder_key = ("BAAI/bge-reranker-base", "cpu")
     search = client.post(
         "/api/v1/memory/search",
-        json={**base, "query": "database", "include_timing": True, "top_k": 5},
+        json={**base, "query": "database", "include_timing": True, "top_k": 5, "min_semantic_score": 0.0},
         headers=api_headers,
     )
     assert search.status_code == 200
     payload = search.get_json()
-    assert payload["timing"]["reranker_used"] is True
+    assert payload["timing"]["reranker_used"] is True, json.dumps(payload["timing"], sort_keys=True)
     assert payload["results"][0]["memory"]["id"] == second
     assert payload["results"][0]["reranker_score"] == 0.95
     assert payload["results"][0]["retrieved_by"] == "reranked"
     assert first in [item["memory"]["id"] for item in payload["results"]]
 
 
-def test_semantic_search_unions_keyword_candidates_when_faiss_has_hits(client, app, api_headers, monkeypatch):
+def test_semantic_search_does_not_union_keyword_candidates_when_faiss_has_hits(client, app, api_headers, monkeypatch):
     base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
     username_id = client.post(
         "/api/v1/memory/add",
@@ -252,7 +260,29 @@ def test_semantic_search_unions_keyword_candidates_when_faiss_has_hits(client, a
     assert search.status_code == 200
     ids = [item["memory"]["id"] for item in search.get_json()["results"]]
     assert username_id in ids
-    assert work_id in ids
+    assert work_id not in ids
+
+
+def test_keyword_search_is_fallback_only_when_faiss_has_no_hits(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    memory_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "PostgreSQL task", "content": "Add nightly PostgreSQL backups.", "memory_type": "task", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return []
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    search = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "postgresql backups", "include_timing": True, "top_k": 10},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    ids = [item["memory"]["id"] for item in search.get_json()["results"]]
+    assert memory_id in ids
 
 
 def test_weak_keyword_only_candidate_is_filtered_when_semantic_is_low(client, app, api_headers, monkeypatch):

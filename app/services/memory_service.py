@@ -129,23 +129,21 @@ class MemoryService:
             candidate_query = base_query.filter(or_(*clauses))
         stage = perf_counter()
         memories = candidate_query.order_by(Memory.updated_at.desc()).limit(candidate_limit).all()
-        if semantic_hits and clauses:
-            memory_by_id = {memory.id: memory for memory in memories}
-            keyword_memories = base_query.filter(or_(*clauses)).order_by(Memory.updated_at.desc()).limit(candidate_limit).all()
-            for memory in keyword_memories:
-                memory_by_id.setdefault(memory.id, memory)
-            memories = list(memory_by_id.values())
         timing["db_lookup_ms"] = round((perf_counter() - stage) * 1000, 2)
         stage = perf_counter()
         ranked = []
         now = datetime.utcnow()
+        min_semantic_score = float(payload.get("min_semantic_score", 0.25))
+        min_keyword_score = float(payload.get("min_keyword_score", 0.5))
         for memory in memories:
             recency = 1 / max((now - memory.created_at).days + 1, 1)
             keyword_score = self._keyword_score(keyword, memory)
             semantic_score = semantic_hits.get(memory.id, 0.0)
-            if semantic_hits and semantic_score <= 0 and keyword_score <= 0:
+            if semantic_hits and semantic_score <= 0:
                 continue
-            if semantic_hits and semantic_score < float(payload.get("min_semantic_score", 0.25)) and keyword_score < float(payload.get("min_keyword_score", 0.5)):
+            if semantic_hits and semantic_score < min_semantic_score:
+                continue
+            if not semantic_hits and keyword_score < min_keyword_score:
                 continue
             score = (
                 max(semantic_score, 0.0) * 0.60
@@ -159,7 +157,7 @@ class MemoryService:
         ranked.sort(key=lambda item: item[0], reverse=True)
         ranked = ranked[: int(payload.get("top_k", 20))]
         timing["rerank_ms"] = round((perf_counter() - stage) * 1000, 2)
-        if semantic_hits and not ranked and terms:
+        if not ranked and terms:
             fallback_started = perf_counter()
             fallback_memories = (
                 base_query.filter(or_(*clauses))
@@ -170,10 +168,13 @@ class MemoryService:
             timing["keyword_fallback_ms"] = round((perf_counter() - fallback_started) * 1000, 2)
             stage = perf_counter()
             ranked = []
+            fallback_keyword_floor = float(
+                payload.get("min_keyword_fallback_score", self._keyword_fallback_floor(bool(semantic_hits), terms))
+            )
             for memory in fallback_memories:
                 recency = 1 / max((now - memory.created_at).days + 1, 1)
                 keyword_score = self._keyword_score(keyword, memory)
-                if keyword_score <= 0:
+                if keyword_score < fallback_keyword_floor:
                     continue
                 score = keyword_score * 0.70 + memory.trust_score * 0.10 + memory.importance_score * 0.10 + recency * 0.10
                 if score >= float(payload.get("min_relevance_score", 0.18)):
@@ -199,6 +200,7 @@ class MemoryService:
         timing["reranker_model"] = reranker_meta["model"]
         timing["reranker_used"] = reranker_meta["used"]
         timing["reranker_reason"] = reranker_meta["reason"]
+        timing["reranker_error"] = reranker_meta.get("error")
         timing["reranker_ms"] = reranker_meta["ms"]
         if payload.get("record_access", True):
             for item in ranked_entries:
@@ -351,6 +353,16 @@ class MemoryService:
             return 0.0
         matches = sum(1 for term in terms if term in haystack_terms)
         return matches / len(terms)
+
+    def _keyword_fallback_floor(self, had_semantic_hits, terms):
+        if not had_semantic_hits:
+            return 0.5
+        term_count = len(set(terms))
+        if term_count <= 2:
+            return 1.0
+        if term_count <= 4:
+            return 0.75
+        return 0.65
 
     def _query_terms(self, text):
         stop_words = {

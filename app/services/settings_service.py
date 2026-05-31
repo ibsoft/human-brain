@@ -130,10 +130,16 @@ DEFAULT_SETTINGS = {
         "description": "Maximum reranked candidates to return before final top_k.",
     },
     "reranker_timeout_ms": {
-        "value": 150,
+        "value": 5000,
         "env": "RERANKER_TIMEOUT_MS",
         "value_type": "int",
         "description": "Reranker timeout in milliseconds.",
+    },
+    "reranker_model_load_timeout_ms": {
+        "value": 30000,
+        "env": "RERANKER_MODEL_LOAD_TIMEOUT_MS",
+        "value_type": "int",
+        "description": "Maximum time to wait for a local reranker model to load.",
     },
     "reranker_weight": {
         "value": 0.70,

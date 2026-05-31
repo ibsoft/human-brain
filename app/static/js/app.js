@@ -338,6 +338,7 @@ async function demoSearch(){
       const provider = timing.reranker_provider || "none";
       const model = timing.reranker_model || "none";
       const reason = timing.reranker_reason || "none";
+      const error = timing.reranker_error || "";
       const rerankerMs = timing.reranker_ms ?? 0;
       const status = used ? "used" : (enabled ? "not used" : "disabled");
       el("searchRerankerStatus").innerHTML = `
@@ -346,6 +347,7 @@ async function demoSearch(){
         <span>model ${escapeHtml(model)}</span>
         <span>reason ${escapeHtml(reason)}</span>
         <span>reranker ${rerankerMs} ms</span>
+        ${error ? `<span>error ${escapeHtml(error).slice(0,180)}</span>` : ""}
       `;
     }
     el("searchResults").innerHTML=data.results.map(result=>{
