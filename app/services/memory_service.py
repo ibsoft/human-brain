@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from time import perf_counter
 
-from flask import current_app
+from flask import current_app, has_request_context, url_for
 from sqlalchemy import or_
 
 from app.extensions import db
@@ -471,8 +471,18 @@ def serialize_asset(asset):
         "vector_hash": asset.vector_hash,
         "vector_dim": asset.vector_dim,
         "metadata": asset.asset_metadata,
-        "url": f"/memory-assets/{asset.public_token}",
+        "url": asset_url(asset, external=has_request_context()),
     }
+
+
+def asset_url(asset, external=False):
+    path = url_for("main.memory_asset", asset_token=asset.public_token) if has_request_context() else f"/memory-assets/{asset.public_token}"
+    configured_base = current_app.config.get("HUMAN_BRAIN_URL")
+    if external and configured_base:
+        return f"{configured_base}{path}"
+    if has_request_context():
+        return url_for("main.memory_asset", asset_token=asset.public_token, _external=external)
+    return path
 
 
 def serialize_correlations(memory_id, limit=10, min_strength=0.35):

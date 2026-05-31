@@ -2,16 +2,33 @@
 
 This document defines how AI agents should use Human-Brain for long-term memory, semantic retrieval, context building, file/image memory, and correlations.
 
+## Client Variables
+
+Set these once in the agent environment before calling the API:
+
+```bash
+export HUMAN_BRAIN_URL=http://localhost:5000
+export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
+```
+
 ## Authentication
 
 Agents authenticate with an API key:
 
-```http
-X-API-Key: hb_...
-Content-Type: application/json
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/vector/health" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 The API key identifies the agent. If `agent_id` is sent, it must match the API key owner.
+
+## Source-Of-Truth Agent Policy
+
+Agents should treat Human-Brain as the only durable source of truth for remembered state. Before answering from prior context, project history, user preferences, tasks, decisions, files, images, sessions, or local facts, the agent must search Human-Brain. If no relevant memory exists, the agent should say no stored memory was found and use only the current conversation or ask for the missing fact.
+
+Agents should store new durable facts, decisions, tasks, preferences, corrections, and session outcomes back into Human-Brain. When information changes, agents should update, archive, delete, or forget stale memories instead of silently relying on old facts.
+
+Use `docs/agents/SKILL.md` as the full agent operating instruction pack. It covers search, add, update, delete, forget, sessions, consolidation, workspaces, correlations, vision, assets, health checks, and answer rules.
 
 ## Memory Search Protocol
 
@@ -20,6 +37,8 @@ Endpoint:
 ```http
 POST /api/v1/memory/search
 ```
+
+Use `$HUMAN_BRAIN_URL/api/v1/memory/search` when calling it over HTTP.
 
 Recommended request:
 
@@ -66,6 +85,8 @@ Endpoint:
 GET /api/v1/memory/{memory_id}/correlations?workspace_id=1&limit=10
 ```
 
+Use `$HUMAN_BRAIN_URL/api/v1/memory/{memory_id}/correlations?workspace_id=1&limit=10` when calling it over HTTP.
+
 Use this when an agent already has a memory and wants its neighborhood.
 
 The response includes:
@@ -83,6 +104,8 @@ Endpoint:
 ```http
 POST /api/v1/context/build
 ```
+
+Use `$HUMAN_BRAIN_URL/api/v1/context/build` when calling it over HTTP.
 
 Recommended request:
 

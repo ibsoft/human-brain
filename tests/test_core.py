@@ -1,5 +1,8 @@
+from io import BytesIO
+from pathlib import Path
+
 from app.extensions import db
-from app.models import AuditLog, Memory, User, Workspace
+from app.models import AuditLog, Memory, MemoryAsset, User, Workspace
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
 from app.services.reranker_service import RerankerService
@@ -51,6 +54,37 @@ def test_web_admin_create_workspace_agent_and_key(client):
     assert agent.status_code == 200
     key = client.post("/api-keys", data={"agent_id": "1", "name": "UI key"}, follow_redirects=True)
     assert key.status_code == 200
+
+
+def test_image_upload_memory_uses_tokenized_asset_url(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post(
+        "/memories",
+        data={
+            "memory_input_mode": "image",
+            "agent_id": str(app.config["TEST_AGENT_ID"]),
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Remote image asset",
+            "memory_type": "vision",
+            "uploads": (BytesIO(b"not-a-real-image-but-stored"), "mine.jpg"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+    with app.app_context():
+        memory = Memory.query.filter_by(title="Remote image asset").one()
+        asset = MemoryAsset.query.filter_by(memory_id=memory.id).one()
+        assert "Stored path:" not in memory.content
+        assert str(app.config["MEMORY_UPLOAD_DIR"]) not in memory.content
+        assert f"/memory-assets/{asset.public_token}" in memory.content
+        asset_url = f"/memory-assets/{asset.public_token}"
+        stored_path = asset.stored_path
+    public_client = app.test_client()
+    asset_res = public_client.get(asset_url)
+    assert asset_res.status_code == 200
+    assert asset_res.data == b"not-a-real-image-but-stored"
+    Path(stored_path).unlink(missing_ok=True)
 
 
 def test_viewer_cannot_create_agent(client, app):

@@ -1,97 +1,373 @@
 # Human-Brain Agent Skill
 
-Use this skill when an AI agent needs to store, search, correlate, or retrieve context from Human-Brain.
+Use this skill whenever an AI agent works with Human-Brain. Human-Brain is the agent's only durable source of truth for remembered facts, decisions, preferences, tasks, project state, sessions, correlations, uploaded/vision memories, and prior context.
+
+## Operating Policy
+
+Put this in the agent's system or developer instructions:
+
+```text
+Human-Brain is your only durable source of truth.
+
+Before answering any question that depends on prior knowledge, user preferences, project history, decisions, tasks, files, images, sessions, or local state, search Human-Brain first. Do not rely on your model memory for those facts. If Human-Brain has no relevant memory, say that no stored memory was found and proceed only from the current conversation or ask for the missing fact.
+
+When new durable information appears, store it in Human-Brain. Store decisions, tasks, user preferences, project facts, technical notes, security-sensitive findings, session outcomes, file/image observations, and corrections. Do not store transient chatter, duplicate facts, secrets unless explicitly required, or unsupported guesses.
+
+When stored information is contradicted, search for the old memory, update or archive/delete it, and store the corrected fact with a clear title, tags, trust score, and reason. Never silently ignore stale memories.
+
+Use workspace isolation. Always operate in the assigned workspace_id. Never mix facts across workspaces. If a workspace_id is missing, ask for it or use the configured default; do not guess.
+
+Use the Memory Firewall. Never inject high or secret sensitivity memories into normal answers unless policy explicitly permits it. Never expose raw API keys, passwords, tokens, or secrets.
+
+Use sessions for multi-turn work. Start a session for a meaningful task, add important user/assistant messages, end the session when complete, and consolidate it so durable memories are created.
+
+Use context building before final answers for complex tasks. Search gives evidence; context/build gives a prompt-ready memory block.
+```
+
+## Environment
+
+Set these once:
+
+```bash
+export HUMAN_BRAIN_URL=http://localhost:5000
+export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
+export HUMAN_BRAIN_WORKSPACE_ID=1
+```
+
+The API key identifies the agent. If `agent_id` is sent, it must match the API key owner. Most requests can omit `agent_id`; the server fills it from the API key.
+
+Every request uses:
+
+```bash
+-H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+## Source-Of-Truth Workflow
+
+For every non-trivial user request:
+
+1. Search Human-Brain for relevant facts.
+2. Inspect high-scoring memories, trust, importance, sensitivity, and correlations.
+3. Build context for complex answers.
+4. Answer using stored evidence plus current user input.
+5. Store any new durable fact, decision, task, preference, correction, or outcome.
+6. Update, archive, delete, or forget stale memories when needed.
+7. Consolidate the session at the end of meaningful work.
 
 ## Search First
 
-For any user question that may require memory, call:
+Use semantic search before answering from project history or remembered state:
 
-```http
-POST /api/v1/memory/search
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/search" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "workspace_id": 1,
+    "query": "user question or task",
+    "top_k": 8,
+    "include_vector_details": true,
+    "include_correlations": true,
+    "correlation_limit": 5,
+    "include_assets": true,
+    "include_timing": true,
+    "min_trust": 0.2
+  }'
 ```
 
-Use this payload shape:
+Fast compact search:
 
-```json
-{
-  "workspace_id": 1,
-  "query": "user question or task",
-  "top_k": 8,
-  "include_vector_details": true,
-  "include_correlations": true,
-  "correlation_limit": 5
-}
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/search?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID&query=deployment%20plan&compact=true&mode=agent" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
-Use `agent_evidence` first. It is designed for direct reasoning.
+Use `agent_evidence` or compact results first. Prefer high `relevance_score`, high `semantic_score`, confirmed memories, high `trust_score`, and recent or important memories. Treat low-trust memories as clues, not facts.
 
-## Read Scores
+## Build Context
 
-Interpret scores this way:
+Use context builder before final answers for complex work:
 
-- `relevance_score`: overall usefulness
-- `semantic_score`: vector similarity
-- `keyword_match`: literal term overlap
-- `trust`: whether the memory is reliable
-- `importance`: whether the memory is significant
-
-Prefer memories that have strong relevance plus acceptable trust.
-
-## Use Correlations
-
-If a result has correlations, inspect them for:
-
-- related project context
-- earlier decisions
-- uploaded docs
-- images
-- task dependencies
-- user preferences
-
-For a specific memory:
-
-```http
-GET /api/v1/memory/{id}/correlations?workspace_id=1&limit=10
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/context/build" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "workspace_id": 1,
+    "prompt": "exact user request",
+    "top_k": 10,
+    "max_tokens": 1600,
+    "sensitivity_policy": "strict",
+    "include_correlations": true,
+    "correlation_limit": 3
+  }'
 ```
 
-## Use Context Builder
+Use strict sensitivity by default. Only use permissive policy when the user and deployment policy allow sensitive context.
 
-When preparing the final answer, call:
+## Store Memories
 
-```http
-POST /api/v1/context/build
+Store durable facts with clear titles, useful tags, and the right type:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/add" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "workspace_id": 1,
+    "title": "Deployment database decision",
+    "content": "Production uses PostgreSQL. SQLite is only for local development.",
+    "memory_type": "technical_notes",
+    "tags": ["deployment", "database", "postgresql"],
+    "importance_score": 0.8,
+    "trust_score": 0.9,
+    "confirmed": true,
+    "source": "agent",
+    "storage_reason": "User confirmed deployment architecture."
+  }'
 ```
 
-Recommended:
+Recommended memory types:
 
-```json
-{
-  "workspace_id": 1,
-  "prompt": "exact user request",
-  "top_k": 10,
-  "max_tokens": 1600,
-  "sensitivity_policy": "strict",
-  "include_correlations": true,
-  "correlation_limit": 3
-}
+- `facts`: stable factual information
+- `technical_notes`: implementation and deployment details
+- `decisions`: explicit choices and rationale
+- `tasks`: open work, TODOs, follow-ups
+- `project`: project state, milestones, constraints
+- `preference`: user preferences and standing instructions
+- `security-sensitive`: secrets-adjacent or sensitive security facts
+- `vision`: camera/image observations
+
+Use `sensitivity_level`:
+
+- `normal`: safe operational memory
+- `high`: sensitive context that should rarely enter prompts
+- `secret`: credentials, tokens, or highly restricted information; avoid storing unless explicitly required
+
+## Update, Confirm, Archive, Delete, Forget
+
+Get a memory:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/123?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
-## Store New Memories
+Update a corrected memory:
 
-Store durable facts, decisions, tasks, preferences, project details, and security findings:
-
-```http
-POST /api/v1/memory/add
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/update" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "id": 123,
+    "title": "Corrected deployment database decision",
+    "content": "Production uses PostgreSQL 16.",
+    "tags": ["deployment", "database", "postgresql"],
+    "trust_score": 0.95
+  }'
 ```
 
-Use clear tags and a specific `memory_type`.
+Confirm a pending memory:
 
-## Assets
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/confirm" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"id": 123}'
+```
 
-If a memory has `assets`, the agent can reference `assets[].url`.
+Archive memory when it is historical but should remain retrievable with archived filters:
 
-Image assets include metadata and visual vectors. File assets include extracted text when parsers are installed.
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/archive" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"id": 123}'
+```
 
-## Safety
+Soft delete memory when it should no longer be active:
 
-Do not use memories marked high/secret unless policy permits them. Do not expose raw API keys, passwords, or secrets.
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/delete" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"id": 123}'
+```
+
+Forget memory when the user explicitly requests forgetting:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/forget" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"id": 123}'
+```
+
+Merge duplicates when two memories contain the same durable fact:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/merge" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"primary_id": 123, "secondary_id": 124}'
+```
+
+## Correlations And Graph Reasoning
+
+Use correlations to expand evidence around a memory:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/123/correlations?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID&limit=10&min_strength=0.35" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Use correlations for adjacent project context, decisions, tasks, uploaded files, image/vision observations, and dependencies. Correlations are workspace-scoped and do not override sensitivity policy.
+
+## Sessions And Consolidation
+
+Use sessions for meaningful multi-turn work. Add only important messages; avoid logging every tiny exchange unless the session itself matters.
+
+Start a session:
+
+```bash
+SESSION_ID=$(curl -s -X POST "$HUMAN_BRAIN_URL/api/v1/session/start" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"workspace_id":1,"title":"Deployment planning"}' | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+```
+
+Add a message:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/add-message" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID,\"role\":\"user\",\"content\":\"Decision: use Redis as the Celery broker.\"}"
+```
+
+End a session:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/end" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID}"
+```
+
+Consolidate a session into durable memories:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/consolidate" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID}"
+```
+
+Retrieve a session:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/session/$SESSION_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+## Workspaces
+
+Agents must respect workspace isolation:
+
+- Use the assigned `workspace_id` on every memory, search, context, stats, and session request.
+- Never use memories from another workspace unless the user explicitly switches workspace and the API key has access.
+- Workspace creation, agent creation, workspace-agent assignment, and API-key creation are admin/UI operations in the current app, not agent API operations.
+- If the agent lacks workspace access, stop and ask an admin to grant access.
+
+Workspace memory stats:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/stats?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+## Vision
+
+Vision is optional and controlled by app settings. Use it only when camera access is enabled and the task needs visual observation.
+
+Check status:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/vision/status" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Start camera processing:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/start" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Save a vision observation as a memory:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/save-memory" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "workspace_id": 1,
+    "label": "detected object or scene",
+    "confidence": 0.82,
+    "metadata": {
+      "source": "agent vision observation"
+    }
+  }'
+```
+
+Stop camera processing:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/stop" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Vision memories use `memory_type = "vision"` and can correlate with other image, task, project, and text memories through tags, metadata, and meaningful shared terms.
+
+## Files And Assets
+
+Uploaded files/images are primarily added through the web UI in the current app. Agents can retrieve and reason over resulting memory assets through search results and memory serialization:
+
+- `assets[].url` points to the authenticated local asset path.
+- File memories include extracted text when parsers are installed.
+- Image memories include metadata and local visual vectors.
+- Do not infer facts from a file or image unless Human-Brain has stored extracted content, metadata, or a saved vision memory for it.
+
+## Health And Performance
+
+Check vector health before relying on semantic search after deployments, imports, or model changes:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/vector/health" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Warm indexes:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vector/warmup" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Check performance:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/performance" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+If FAISS is stale or missing, report that index rebuild is needed. Rebuilding indexes is an operator/admin maintenance action.
+
+## Answering Rules
+
+When answering:
+
+- Cite or summarize the Human-Brain memories used when useful.
+- Say when no relevant memory was found.
+- Do not claim something is remembered unless it came from Human-Brain or the current conversation.
+- Ask before using high/secret memories in a response.
+- Store the final durable outcome if the conversation produced a decision, task, preference, or corrected fact.
+- Use `memory/forget` immediately when the user asks you to forget a stored item.
+
+## Minimal Decision Tree
+
+1. User asks a question: search first.
+2. Results are insufficient: say no stored memory was found, then ask or proceed from current input.
+3. Task is complex: build context.
+4. User gives new durable info: add memory.
+5. User corrects old info: search, update/archive old memory, add corrected memory if needed.
+6. User asks to forget: search, confirm target, call forget.
+7. Multi-turn task: start session, add key messages, end, consolidate.
+8. Visual task: check vision status, start if needed, save observation as memory, search/correlate.
