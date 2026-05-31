@@ -4,9 +4,11 @@ from datetime import datetime
 from logging.config import dictConfig
 
 from flask import Flask
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import config_by_name
 from app.extensions import bcrypt, celery, csrf, db, limiter, login_manager, migrate
+from app.utils.database import missing_tables
 
 
 def create_app(config_name="development"):
@@ -127,6 +129,10 @@ def warmup_vectors(app):
         return
     try:
         with app.app_context():
+            missing = missing_tables()
+            if missing:
+                app.logger.info("Skipping vector startup warmup; database is not migrated yet. Missing tables: %s", ", ".join(missing))
+                return
             from app.services.embedding_service import EmbeddingService
             from app.services.faiss_service import FaissService
             from app.services.settings_service import SettingsService
@@ -134,5 +140,7 @@ def warmup_vectors(app):
             model_name = SettingsService.get("embedding_model", app.config["EMBEDDING_MODEL"])
             result = FaissService(app.config["FAISS_INDEX_DIR"]).warmup(EmbeddingService(model_name))
             app.logger.info("Vector startup warmup complete: %s", result)
+    except SQLAlchemyError as exc:
+        app.logger.warning("Skipping vector startup warmup; database is not ready: %s", exc)
     except Exception:
         app.logger.exception("Vector startup warmup failed")

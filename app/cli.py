@@ -6,6 +6,7 @@ from time import perf_counter
 
 import click
 from flask import current_app
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.extensions import db
 from app.models import Agent, ApiKey, Memory, Session, SessionMessage, User, Workspace, WorkspaceAgent
@@ -15,6 +16,24 @@ from app.services.memory_service import MemoryService
 from app.services.embedding_service import EmbeddingService
 from app.services.faiss_service import FaissService
 from app.services.settings_service import SettingsService
+from app.utils.database import missing_tables, safe_database_uri
+
+
+def require_migrated_database():
+    try:
+        missing = missing_tables()
+    except SQLAlchemyError as exc:
+        database_uri = safe_database_uri(current_app.config["SQLALCHEMY_DATABASE_URI"])
+        raise click.ClickException(f"Database is not reachable or not ready: {exc}. Current database: {database_uri}") from exc
+    if not missing:
+        return
+    database_uri = safe_database_uri(current_app.config["SQLALCHEMY_DATABASE_URI"])
+    raise click.ClickException(
+        "Database is not migrated or DATABASE_URL points to an empty database. "
+        f"Missing tables: {', '.join(missing)}. "
+        "Run `flask --app manage:app db upgrade`, then retry. "
+        f"Current database: {database_uri}"
+    )
 
 
 def register_commands(app):
@@ -31,6 +50,7 @@ def register_commands(app):
 
     @app.cli.command("seed-demo-data")
     def seed_demo_data():
+        require_migrated_database()
         SettingsService.ensure_defaults()
         workspace = Workspace.query.first() or Workspace(name="Default Workspace", description="Local private AI memory workspace")
         db.session.add(workspace)
@@ -50,6 +70,7 @@ def register_commands(app):
     @app.cli.command("seed-sample-data")
     @click.option("--count", default=100, type=int)
     def seed_sample_data(count):
+        require_migrated_database()
         SettingsService.ensure_defaults()
         workspace = Workspace(name="Sample Workspace", description="Generated sample data for Human-Brain testing")
         db.session.add(workspace)
@@ -98,6 +119,7 @@ def register_commands(app):
 
     @app.cli.command("purge-sample-data")
     def purge_sample_data():
+        require_migrated_database()
         sample_workspaces = Workspace.query.filter(Workspace.name.like("Sample%")).all()
         for workspace in sample_workspaces:
             AdminService.delete_workspace(workspace.id)
@@ -110,6 +132,7 @@ def register_commands(app):
     @app.cli.command("rebuild-index")
     @click.option("--workspace-id", type=int)
     def rebuild_index(workspace_id):
+        require_migrated_database()
         workspace_ids = [workspace_id] if workspace_id else [w.id for w in Workspace.query.all()]
         service = FaissService(current_app.config["FAISS_INDEX_DIR"])
         embeddings = EmbeddingService(current_app.config["EMBEDDING_MODEL"])
@@ -118,6 +141,7 @@ def register_commands(app):
 
     @app.cli.command("vector-health")
     def vector_health():
+        require_migrated_database()
         service = FaissService(current_app.config["FAISS_INDEX_DIR"])
         click.echo(json.dumps(service.health(), indent=2))
 
@@ -127,6 +151,7 @@ def register_commands(app):
     @click.option("--agent-id", type=int)
     @click.option("--top-k", default=5, type=int)
     def test_search(query, workspace_id, agent_id, top_k):
+        require_migrated_database()
         workspace = db.session.get(Workspace, workspace_id) if workspace_id else Workspace.query.first()
         if not workspace:
             raise click.ClickException("No workspace found")
@@ -148,6 +173,7 @@ def register_commands(app):
     @click.option("--queries", default=100, type=int)
     @click.option("--top-k", default=5, type=int)
     def benchmark_search(query, workspace_id, agent_id, queries, top_k):
+        require_migrated_database()
         workspace = db.session.get(Workspace, workspace_id) if workspace_id else Workspace.query.first()
         if not workspace:
             raise click.ClickException("No workspace found")
@@ -191,6 +217,7 @@ def register_commands(app):
     @app.cli.command("rebuild-correlations")
     @click.option("--workspace-id", type=int)
     def rebuild_correlations(workspace_id):
+        require_migrated_database()
         workspace_ids = [workspace_id] if workspace_id else [w.id for w in Workspace.query.all()]
         service = CorrelationService()
         for wid in workspace_ids:
