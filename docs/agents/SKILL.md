@@ -326,8 +326,18 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/save-memory" \
     "metadata": {
       "source": "agent vision observation"
     }
-  }'
+}'
 ```
+
+Save the latest detected objects from the active Vision stream:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/save-current" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{"workspace_id": 1}'
+```
+
+If snapshot storage is enabled, the saved memory includes the current annotated frame as an image asset.
 
 Stop camera processing:
 

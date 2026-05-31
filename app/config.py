@@ -37,7 +37,7 @@ class Config:
     SNAPSHOT_STORAGE_ENABLED = os.getenv("SNAPSHOT_STORAGE_ENABLED", "false").lower() == "true"
     SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", str(BASE_DIR / "uploads" / "snapshots"))
     MEMORY_UPLOAD_DIR = os.getenv("MEMORY_UPLOAD_DIR", str(BASE_DIR / "uploads" / "memory_uploads"))
-    YOLO_MODEL = os.getenv("YOLO_MODEL", "yolov8n.pt")
+    YOLO_MODEL = os.getenv("YOLO_MODEL", "models/yolov8n.pt")
     AUTO_STORE_CONSOLIDATED_MEMORY = os.getenv("AUTO_STORE_CONSOLIDATED_MEMORY", "false").lower() == "true"
     LOCAL_FIRST_PRIVACY_MODE = os.getenv("LOCAL_FIRST_PRIVACY_MODE", "true").lower() == "true"
     RUN_JOBS_INLINE_ON_BROKER_FAILURE = os.getenv("RUN_JOBS_INLINE_ON_BROKER_FAILURE", "false").lower() == "true"

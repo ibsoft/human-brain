@@ -9,6 +9,7 @@ from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
 from app.services.reranker_service import RerankerService
 from app.services.settings_service import SettingsService
+from app.services.vision_service import VisionRuntime, VisionService
 from app.workers.tasks import consolidate_session_task
 
 
@@ -637,6 +638,58 @@ def test_generic_upload_metadata_does_not_correlate_irrelevant_memories(client, 
     with app.app_context():
         correlations = CorrelationService().for_memory(image)
         assert all(pdf not in [item.source_memory_id, item.target_memory_id] for item in correlations)
+
+
+def test_vision_save_current_detection_attaches_snapshot_asset(client, app, api_headers):
+    with app.app_context():
+        SettingsService.update({"snapshot_storage_enabled": True})
+        VisionRuntime.last_detection = {
+            "timestamp": "2026-05-31T20:00:00",
+            "objects": [{"label": "person", "confidence": 0.91}, {"label": "cup", "confidence": 0.76}],
+        }
+        VisionRuntime.last_snapshot = b"snapshot-bytes"
+    res = client.post(
+        "/api/v1/vision/save-current",
+        json={"workspace_id": app.config["TEST_WORKSPACE_ID"]},
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    memory = res.get_json()["memory"]
+    assert memory["memory_type"] == "vision"
+    assert {"person", "cup", "camera"}.issubset(set(memory["tags"]))
+    assert memory["assets"]
+    assert "Snapshot URL:" in memory["content"]
+    with app.app_context():
+        asset = MemoryAsset.query.filter_by(memory_id=memory["id"]).one()
+        assert asset.asset_type == "image"
+        assert asset.asset_metadata["objects"][0]["label"] == "person"
+        Path(asset.stored_path).unlink(missing_ok=True)
+
+
+def test_vision_auto_save_uses_interval_for_same_detection(client, app):
+    with app.app_context():
+        SettingsService.update({"vision_auto_save": True, "snapshot_storage_enabled": True, "vision_auto_save_interval_seconds": 30})
+        VisionRuntime.last_detection = {
+            "timestamp": "2026-05-31T20:00:00",
+            "objects": [{"label": "keyboard", "confidence": 0.88}],
+        }
+        VisionRuntime.last_snapshot = b"snapshot-bytes"
+        VisionRuntime.last_auto_saved_signature = None
+        VisionRuntime.last_auto_saved_at = None
+        service = VisionService()
+        service._maybe_auto_save_current_detection(b"snapshot-bytes")
+        service._maybe_auto_save_current_detection(b"snapshot-bytes")
+        memories = Memory.query.filter(Memory.title.like("Vision detected keyboard%")).all()
+        assert len(memories) == 1
+        asset = MemoryAsset.query.filter_by(memory_id=memories[0].id).one()
+        Path(asset.stored_path).unlink(missing_ok=True)
+
+
+def test_vision_status_includes_yolo_device(client, app):
+    with app.app_context():
+        SettingsService.update({"yolo_device": "cuda:0"})
+        status = VisionService().status()
+        assert status["device"] == "cuda:0"
 
 
 def test_web_memory_and_session_workflows(client, app):

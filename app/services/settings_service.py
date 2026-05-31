@@ -41,6 +41,10 @@ DEFAULT_SETTINGS = {
         "value": False,
         "description": "Automatically save detected objects as vision memories.",
     },
+    "vision_auto_save_interval_seconds": {
+        "value": 30,
+        "description": "Minimum seconds between automatic vision memory saves for the same detected object set.",
+    },
     "retention_days": {
         "value": 365,
         "description": "Default memory retention window for expiration jobs.",
@@ -92,11 +96,15 @@ DEFAULT_SETTINGS = {
         "description": "Encourage agents to use explicit API sessions and session_id fields.",
     },
     "yolo_model": {
-        "value": "yolov8n.pt",
+        "value": "models/yolov8n.pt",
         "description": "Active Ultralytics YOLO model used for local object detection.",
     },
+    "yolo_device": {
+        "value": "cpu",
+        "description": "Ultralytics YOLO inference device: cpu, cuda, cuda:0, cuda:1, or mps.",
+    },
     "vision_models": {
-        "value": ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"],
+        "value": ["models/yolov8n.pt", "models/yolov8s.pt", "models/yolov8m.pt", "models/yolov8l.pt", "models/yolov8x.pt"],
         "description": "Allowed local or downloadable vision model names/paths.",
     },
     "vision_backend": {

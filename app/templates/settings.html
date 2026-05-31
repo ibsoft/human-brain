@@ -64,11 +64,13 @@
       {% for key,label in [('camera_enabled','Enable camera'),('snapshot_storage_enabled','Allow snapshot storage'),('vision_auto_save','Auto-save vision memories')] %}
       <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
       {% endfor %}
+      <label class="form-label mt-3">Auto-save interval seconds</label><input class="form-control" name="vision_auto_save_interval_seconds" type="number" min="5" value="{{ settings.vision_auto_save_interval_seconds }}" placeholder="30">
       <label class="form-label mt-3">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics">
       <label class="form-label mt-3">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0">
       <label class="form-label mt-3">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select>
-      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="yolov8n.pt">
-      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="yolov8n.pt&#10;yolov8s.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
+      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="models/yolov8n.pt">
+      <label class="form-label mt-3">Inference device</label><select class="form-select" name="yolo_device"><option value="cpu" {% if settings.yolo_device == 'cpu' %}selected{% endif %}>CPU</option><option value="cuda" {% if settings.yolo_device == 'cuda' %}selected{% endif %}>CUDA</option><option value="cuda:0" {% if settings.yolo_device == 'cuda:0' %}selected{% endif %}>CUDA 0</option><option value="cuda:1" {% if settings.yolo_device == 'cuda:1' %}selected{% endif %}>CUDA 1</option><option value="mps" {% if settings.yolo_device == 'mps' %}selected{% endif %}>Apple MPS</option></select>
+      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="models/yolov8n.pt&#10;models/yolov8s.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
     </div>
   </div>
   <button class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>

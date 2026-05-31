@@ -67,7 +67,7 @@ def main():
 
         filename = destination.name
         url = f"{args.base_url.rstrip('/')}/{filename}"
-        print(f"download {filename} -> {destination}")
+        print(f"download {filename} -> {destination}", flush=True)
         try:
             download(url, destination, args.timeout)
         except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:

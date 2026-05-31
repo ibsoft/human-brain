@@ -5,8 +5,33 @@
     <div class="col-lg-8"><div class="camera-frame"><img src="{{ url_for('vision.vision_stream') }}" alt="Local vision stream"></div></div>
     <div class="col-lg-4">
       <h2>Vision Status</h2><pre class="output">{{ status }}</pre>
+      <form class="row g-2 mb-3" method="post" action="{{ url_for('vision.vision_save_current_web') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12"><select class="form-select" name="workspace_id" required>{% for workspace in workspaces %}<option value="{{ workspace.id }}">{{ workspace.name }}</option>{% else %}<option value="">No workspace</option>{% endfor %}</select></div>
+        <div class="col-12"><select class="form-select" name="agent_id" required>{% for agent in agents %}<option value="{{ agent.id }}">{{ agent.name }}</option>{% else %}<option value="">No active agent</option>{% endfor %}</select></div>
+        <div class="col-12"><button id="saveVisionDetectionButton" class="btn btn-primary w-100" data-can-save="{{ 'true' if agents and workspaces and not status.vision_auto_save else 'false' }}" {% if not agents or not workspaces or status.vision_auto_save %}disabled{% endif %}><i class="fa-solid fa-camera"></i> Save Current Detection</button></div>
+      </form>
       <a class="btn btn-outline-info" href="{{ url_for('main.settings') }}"><i class="fa-solid fa-sliders"></i> Vision Settings</a>
     </div>
   </div>
 </section>
+<script>
+(() => {
+  const output = document.querySelector(".output");
+  const button = document.getElementById("saveVisionDetectionButton");
+  let hasTargets = button?.dataset.canSave === "true";
+  async function refreshVisionStatus(){
+    try{
+      const response = await fetch("{{ url_for('vision.vision_status_web') }}");
+      if(!response.ok) return;
+      const status = await response.json();
+      if(output) output.textContent = JSON.stringify(status, null, 2);
+      hasTargets = button?.dataset.canSave === "true" && !status.vision_auto_save;
+      if(button) button.disabled = !hasTargets || !(status.last_detection && status.last_detection.objects && status.last_detection.objects.length);
+    }catch(error){}
+  }
+  refreshVisionStatus();
+  setInterval(refreshVisionStatus, 2000);
+})();
+</script>
 {% endblock %}
