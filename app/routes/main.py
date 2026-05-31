@@ -544,6 +544,14 @@ def audit_logs():
 @minimum_role("operator")
 def settings():
     SettingsService.ensure_defaults()
+    def int_form(name, default):
+        value = request.form.get(name)
+        return int(value) if str(value or "").strip() else default
+
+    def float_form(name, default):
+        value = request.form.get(name)
+        return float(value) if str(value or "").strip() else default
+
     if request.method == "POST":
         values = {
             "local_first_privacy_mode": request.form.get("local_first_privacy_mode") == "on",
@@ -551,7 +559,7 @@ def settings():
             "camera_enabled": request.form.get("camera_enabled") == "on",
             "snapshot_storage_enabled": request.form.get("snapshot_storage_enabled") == "on",
             "vision_auto_save": request.form.get("vision_auto_save") == "on",
-            "retention_days": int(request.form.get("retention_days", 365)),
+            "retention_days": int_form("retention_days", 365),
             "embedding_model": request.form.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2").strip(),
             "embedding_models": [x.strip() for x in request.form.get("embedding_models", "").splitlines() if x.strip()],
             "ollama_base_url": request.form.get("ollama_base_url", "http://localhost:11434").strip(),
@@ -559,7 +567,7 @@ def settings():
                 "enabled": request.form.get("backup_schedule_enabled") == "on",
                 "frequency": request.form.get("backup_frequency", "daily"),
                 "time": request.form.get("backup_time", "02:00"),
-                "keep_last": int(request.form.get("backup_keep_last", 7)),
+                "keep_last": int_form("backup_keep_last", 7),
             },
             "reranker_enabled": request.form.get("reranker_enabled") == "on",
             "reranker_provider": request.form.get("reranker_provider", "none").strip(),
@@ -567,19 +575,20 @@ def settings():
             "reranker_cross_encoder_model": request.form.get("reranker_cross_encoder_model", "BAAI/bge-reranker-base").strip(),
             "reranker_ollama_base_url": request.form.get("reranker_ollama_base_url", "http://localhost:11434").strip(),
             "reranker_ollama_model": request.form.get("reranker_ollama_model", "qwen2.5:7b").strip(),
-            "reranker_top_n": int(request.form.get("reranker_top_n", 5)),
-            "reranker_return_k": int(request.form.get("reranker_return_k", 5)),
-            "reranker_timeout_ms": int(request.form.get("reranker_timeout_ms", 150)),
-            "reranker_weight": float(request.form.get("reranker_weight", 0.70)),
-            "faiss_weight": float(request.form.get("faiss_weight", 0.30)),
-            "trust_weight": float(request.form.get("trust_weight", 0.05)),
-            "importance_weight": float(request.form.get("importance_weight", 0.05)),
-            "reranker_conditional_threshold": float(request.form.get("reranker_conditional_threshold", 0.08)),
-            "reranker_max_text_chars": int(request.form.get("reranker_max_text_chars", 1500)),
+            "reranker_top_n": int_form("reranker_top_n", 5),
+            "reranker_return_k": int_form("reranker_return_k", 5),
+            "reranker_timeout_ms": int_form("reranker_timeout_ms", 5000),
+            "reranker_model_load_timeout_ms": int_form("reranker_model_load_timeout_ms", 30000),
+            "reranker_weight": float_form("reranker_weight", 0.70),
+            "faiss_weight": float_form("faiss_weight", 0.30),
+            "trust_weight": float_form("trust_weight", 0.05),
+            "importance_weight": float_form("importance_weight", 0.05),
+            "reranker_conditional_threshold": float_form("reranker_conditional_threshold", 0.08),
+            "reranker_max_text_chars": int_form("reranker_max_text_chars", 1500),
             "reranker_device": request.form.get("reranker_device", "cpu").strip(),
             "yolo_model": request.form.get("yolo_model", "yolo26x.pt").strip(),
             "vision_backend": request.form.get("vision_backend", "ultralytics").strip(),
-            "camera_index": int(request.form.get("camera_index", 0)),
+            "camera_index": int_form("camera_index", 0),
             "camera_api": request.form.get("camera_api", "auto").strip(),
             "vision_models": [x.strip() for x in request.form.get("vision_models", "").splitlines() if x.strip()],
             "sensitivity_firewall": {

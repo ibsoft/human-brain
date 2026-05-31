@@ -29,6 +29,7 @@ class RerankerService:
             "reranker_top_n",
             "reranker_return_k",
             "reranker_timeout_ms",
+            "reranker_model_load_timeout_ms",
             "reranker_weight",
             "faiss_weight",
             "trust_weight",
@@ -49,13 +50,14 @@ class RerankerService:
             "reranker_top_n": max(1, int(value("reranker_top_n"))),
             "reranker_return_k": max(1, int(value("reranker_return_k"))),
             "reranker_timeout_ms": max(1, int(value("reranker_timeout_ms"))),
+            "reranker_model_load_timeout_ms": max(1, int(value("reranker_model_load_timeout_ms"))),
             "reranker_weight": max(0.0, float(value("reranker_weight"))),
             "faiss_weight": max(0.0, float(value("faiss_weight"))),
             "trust_weight": max(0.0, float(value("trust_weight"))),
             "importance_weight": max(0.0, float(value("importance_weight"))),
             "reranker_conditional_threshold": max(0.0, float(value("reranker_conditional_threshold"))),
             "reranker_max_text_chars": max(100, int(value("reranker_max_text_chars"))),
-            "reranker_device": value("reranker_device") or "cpu",
+            "reranker_device": self._normalize_device(value("reranker_device") or "cpu"),
         }
 
     def maybe_rerank(self, query, ranked, payload, mode):
@@ -67,6 +69,7 @@ class RerankerService:
             "used": False,
             "ms": 0,
             "reason": "disabled",
+            "error": None,
         }
         if not self._should_rerank(settings, ranked, payload, mode):
             metadata["reason"] = self._skip_reason(settings, ranked)
@@ -78,11 +81,13 @@ class RerankerService:
         started = perf_counter()
         try:
             if provider == "cross_encoder":
-                if not self._cross_encoder_ready(settings):
-                    metadata["reason"] = "cross_encoder_loading"
-                    metadata["ms"] = round((perf_counter() - started) * 1000, 2)
-                    return ranked, metadata
-                scores, reasons = self._run_with_timeout(lambda: self._cross_encoder_scores(query, candidates, settings), settings)
+                run_settings = dict(settings)
+                if not self._cross_encoder_loaded(settings):
+                    run_settings["reranker_timeout_ms"] = max(
+                        settings["reranker_timeout_ms"],
+                        settings["reranker_model_load_timeout_ms"],
+                    )
+                scores, reasons = self._run_with_timeout(lambda: self._cross_encoder_scores(query, candidates, settings, wait_for_model=True), run_settings)
             elif provider == "ollama":
                 scores, reasons = self._run_with_timeout(lambda: OllamaRerankerService().rerank(query, formatted, settings), settings)
             else:
@@ -92,7 +97,8 @@ class RerankerService:
             if current_app.debug:
                 current_app.logger.debug("Reranker failed open: %s", exc, exc_info=True)
             metadata["ms"] = round((perf_counter() - started) * 1000, 2)
-            metadata["reason"] = "failed_open"
+            metadata["reason"] = "timed_out" if "timed out" in str(exc).lower() else "failed_open"
+            metadata["error"] = str(exc)
             return ranked, metadata
 
         metadata["used"] = True
@@ -231,22 +237,12 @@ class RerankerService:
             return [0.5 for _ in values]
         return [max(0.0, min(1.0, (value - low) / (high - low))) for value in values]
 
-    def _cross_encoder_ready(self, settings):
+    def _cross_encoder_loaded(self, settings):
         key = (settings["reranker_cross_encoder_model"], settings["reranker_device"])
         cls = self.__class__
         with cls._cross_encoder_lock:
             if cls._cross_encoder is not None and cls._cross_encoder_key == key:
                 return True
-            if cls._cross_encoder_future is not None and cls._cross_encoder_future_key == key:
-                if cls._cross_encoder_future.done():
-                    cls._cross_encoder = cls._cross_encoder_future.result()
-                    cls._cross_encoder_key = key
-                    cls._cross_encoder_future = None
-                    cls._cross_encoder_future_key = None
-                    return True
-                return False
-            cls._cross_encoder_future = cls._cross_encoder_loader.submit(self._load_cross_encoder, key)
-            cls._cross_encoder_future_key = key
             return False
 
     def _cross_encoder_model(self, settings, wait=False):
@@ -261,7 +257,14 @@ class RerankerService:
             future = cls._cross_encoder_future
         if not wait and not future.done():
             raise RuntimeError("Cross-encoder model is still loading")
-        model = future.result()
+        try:
+            model = future.result()
+        except Exception:
+            with cls._cross_encoder_lock:
+                if cls._cross_encoder_future is future:
+                    cls._cross_encoder_future = None
+                    cls._cross_encoder_future_key = None
+            raise
         with cls._cross_encoder_lock:
             cls._cross_encoder = model
             cls._cross_encoder_key = key
@@ -327,6 +330,21 @@ class RerankerService:
         if settings["reranker_provider"] == "ollama":
             return settings["reranker_ollama_model"]
         return None
+
+    def _normalize_device(self, device):
+        value = str(device or "cpu").strip().lower()
+        if value == "gpu":
+            value = "cuda"
+        if value == "cuda":
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    return "cuda"
+            except Exception:
+                pass
+            return "cpu"
+        return value if value in {"cpu", "mps"} else "cpu"
 
 
 class _SampleMemory:
