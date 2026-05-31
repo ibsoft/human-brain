@@ -246,13 +246,38 @@ def default_value(key):
 def _sanitize_yolo_settings():
     default_model = DEFAULT_SETTINGS["yolo_model"]["value"]
     model_setting = AppSetting.query.filter_by(key="yolo_model").first()
-    if model_setting and "yolo26" in str(model_setting.value).lower():
-        model_setting.value = default_model
+    if model_setting:
+        model_setting.value = _normalize_yolo_model(model_setting.value) or default_model
     models_setting = AppSetting.query.filter_by(key="vision_models").first()
     if models_setting and isinstance(models_setting.value, list):
-        models_setting.value = [model for model in models_setting.value if "yolo26" not in str(model).lower()]
+        models_setting.value = _normalize_yolo_model_list(models_setting.value)
         if default_model not in models_setting.value:
             models_setting.value.insert(0, default_model)
+
+
+def _normalize_yolo_model(value):
+    raw = str(value or "").strip()
+    if not raw or "yolo26" in raw.lower():
+        return None
+    standard = {"yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"}
+    if raw in standard:
+        return f"models/{raw}"
+    return raw
+
+
+def _normalize_yolo_model_list(values):
+    normalized = []
+    seen = set()
+    for value in values:
+        model = _normalize_yolo_model(value)
+        if not model:
+            continue
+        key = model.rsplit("/", 1)[-1]
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(model)
+    return normalized
 
 
 class SettingsService:
@@ -296,10 +321,10 @@ class SettingsService:
     def update(values):
         SettingsService.ensure_defaults()
         for key, value in values.items():
-            if key == "yolo_model" and "yolo26" in str(value).lower():
-                value = DEFAULT_SETTINGS["yolo_model"]["value"]
+            if key == "yolo_model":
+                value = _normalize_yolo_model(value) or DEFAULT_SETTINGS["yolo_model"]["value"]
             if key == "vision_models" and isinstance(value, list):
-                value = [model for model in value if "yolo26" not in str(model).lower()]
+                value = _normalize_yolo_model_list(value)
                 if DEFAULT_SETTINGS["yolo_model"]["value"] not in value:
                     value.insert(0, DEFAULT_SETTINGS["yolo_model"]["value"])
             setting = AppSetting.query.filter_by(key=key).first()
