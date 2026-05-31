@@ -397,6 +397,8 @@ Multipart fields:
 
 The response returns `count` and `memories[]`. Each returned memory includes `assets[]` with tokenized `url` values. Use those URLs when the user or a remote agent needs to inspect the original file or image.
 
+If `assets[].url` points to an internal host such as `127.0.0.1`, report that an operator must set Settings -> Public base URL or `.env` `HUMAN_BRAIN_URL` to the external reverse-proxy URL.
+
 Replace the actual file behind an existing uploaded document/image memory when the file changed but the memory identity should stay the same:
 
 ```bash

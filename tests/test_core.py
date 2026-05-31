@@ -223,6 +223,31 @@ def test_compact_agent_search_includes_asset_urls(client, app, api_headers):
     Path(stored_path).unlink(missing_ok=True)
 
 
+def test_asset_url_uses_public_base_url_setting(client, app, api_headers):
+    with app.app_context():
+        SettingsService.update({"public_base_url": "https://human-brain.ibnet.lan"})
+    upload = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "External image asset",
+            "memory_type": "vision",
+            "confirmed": "true",
+            "uploads": (BytesIO(b"image-bytes"), "external.jpg"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+        base_url="http://127.0.0.1:9393",
+    )
+    assert upload.status_code == 201
+    memory = upload.get_json()["memories"][0]
+    assert memory["assets"][0]["url"].startswith("https://human-brain.ibnet.lan/memory-assets/")
+    assert "https://human-brain.ibnet.lan/memory-assets/" in memory["content"]
+    with app.app_context():
+        stored_path = MemoryAsset.query.filter_by(memory_id=memory["id"]).one().stored_path
+    Path(stored_path).unlink(missing_ok=True)
+
+
 def test_agent_can_list_session_jobs(client, app, api_headers):
     start = client.post(
         "/api/v1/session/start",

@@ -7,6 +7,8 @@
       {% for key,label in [('local_first_privacy_mode','Local-first privacy mode'),('auto_store_consolidated_memory','Auto-store consolidated memories'),('block_high','Block high sensitivity in context'),('block_secret','Block secret memories in context'),('allow_sensitive_context_for_admin','Allow admin sensitive context override')] %}
       <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) or settings.get('sensitivity_firewall',{}).get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
       {% endfor %}
+      <label class="form-label mt-3">Public base URL</label><input class="form-control" name="public_base_url" value="{{ settings.public_base_url }}" placeholder="https://human-brain.ibnet.lan">
+      <div class="form-text text-secondary">Used for tokenized uploaded file/image URLs returned to remote agents.</div>
       <label class="form-label mt-3">Retention days</label><input class="form-control" type="number" name="retention_days" value="{{ settings.retention_days }}" placeholder="365">
       <h2 class="mt-4">Embedding Models</h2>
       <label class="form-label">Active embedding model</label>
