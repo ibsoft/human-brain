@@ -5,7 +5,7 @@ from flask import current_app
 from werkzeug.utils import secure_filename
 
 from app.extensions import db
-from app.models import MemoryAsset
+from app.models import Memory, MemoryAsset
 from app.services.asset_vector_service import AssetVectorService
 from app.services.memory_service import MemoryService, asset_url
 from app.utils.hash import sha256_text
@@ -24,11 +24,28 @@ class DocumentIngestionService:
                 continue
             stored_path = self._save(upload)
             payloads = self._payloads_for_file(stored_path, upload.mimetype, base_payload, mode, chunk_size)
+            created_new_asset = False
             for payload in payloads:
+                existing = self._existing_uploaded_image(payload)
+                if existing:
+                    existing.trust_score = min(1.0, existing.trust_score + 0.05)
+                    existing.updated_at = datetime.utcnow()
+                    try:
+                        from app.services.audit_service import AuditService
+
+                        AuditService.log("memory.duplicate_seen", actor_type, actor_id, existing.workspace_id, "memory", existing.id)
+                    except Exception:
+                        current_app.logger.exception("Could not audit duplicate uploaded image")
+                    db.session.commit()
+                    created.append(existing)
+                    continue
                 memory, _ = MemoryService().add_memory(payload, actor_type=actor_type, actor_id=actor_id)
                 asset = self._create_asset(memory, stored_path, upload.filename, upload.mimetype, payload.get("_asset_type", "document"), payload.get("_asset_text"))
                 self._attach_asset_url(memory, asset)
                 created.append(memory)
+                created_new_asset = True
+            if not created_new_asset:
+                self._remove_saved_duplicate(stored_path)
         return created
 
     def replace_memory_asset(self, memory, upload, actor_type="agent", actor_id=None, title=None, tags=None, mode="full", chunk_size=4000):
@@ -193,6 +210,29 @@ class DocumentIngestionService:
         except Exception:
             current_app.logger.exception("Could not correlate uploaded asset memory")
         return asset
+
+    def _existing_uploaded_image(self, payload):
+        if payload.get("_asset_type") != "image" or not payload.get("_asset_hash"):
+            return None
+        asset = (
+            MemoryAsset.query.join(Memory, Memory.id == MemoryAsset.memory_id)
+            .filter(
+                Memory.workspace_id == payload["workspace_id"],
+                Memory.deleted_at.is_(None),
+                Memory.archived.is_(False),
+                MemoryAsset.asset_type == "image",
+                MemoryAsset.vector_hash == payload["_asset_hash"],
+            )
+            .order_by(MemoryAsset.created_at.asc())
+            .first()
+        )
+        return db.session.get(Memory, asset.memory_id) if asset else None
+
+    def _remove_saved_duplicate(self, path):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            current_app.logger.warning("Could not remove duplicate uploaded asset file: %s", path)
 
     def _asset_vector_for(self, asset_type, path, mimetype, asset_text=None, fallback_text=""):
         if asset_type == "image":
