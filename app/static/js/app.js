@@ -374,22 +374,50 @@ async function demoSearch(){
   }
 }
 if(document.getElementById("activityChart")){
-  new Chart(document.getElementById("activityChart"),{type:"line",data:{labels:["Mon","Tue","Wed","Thu","Fri","Sat","Sun"],datasets:[{label:"Memory writes",data:[4,8,5,12,9,14,11],borderColor:"#38e88f",backgroundColor:"rgba(56,232,143,.16)",fill:true,tension:.35}]},options:{plugins:{legend:{display:false}},scales:{x:{grid:{color:"#1d3a2e"}},y:{grid:{color:"#1d3a2e"}}}}});
+  const dashboardDataEl=document.getElementById("dashboardChartsData");
+  const dashboardCharts=dashboardDataEl ? JSON.parse(dashboardDataEl.textContent) : {};
+  const palette=["#38e88f","#9cffcb","#f2c94c","#ff8aa0","#7dd3fc","#d69cff","#f59e0b","#22c55e"];
+  const chartOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:"#dcecff"}}},scales:{x:{ticks:{color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}},y:{beginAtZero:true,ticks:{precision:0,color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}}}};
+  const doughnutOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#dcecff",boxWidth:12}}}};
+  const emptyPlugin={id:"emptyChart",afterDraw(chart){const values=chart.data.datasets.flatMap(dataset=>dataset.data||[]);if(values.some(value=>Number(value)>0)) return;const {ctx,chartArea}=chart;if(!chartArea) return;ctx.save();ctx.fillStyle="#74889e";ctx.font="13px system-ui";ctx.textAlign="center";ctx.fillText("No data yet",chartArea.left+chartArea.width/2,chartArea.top+chartArea.height/2);ctx.restore();}};
+  const dataset=(key)=>dashboardCharts[key]||{labels:[],values:[]};
+  const build=(id,type,key,label,options=chartOptions)=>{
+    const target=document.getElementById(id);
+    if(!target) return;
+    const data=dataset(key);
+    new Chart(target,{type,data:{labels:data.labels||[],datasets:[{label,data:data.values||[],borderColor:palette[0],backgroundColor:type==="line"?"rgba(56,232,143,.16)":palette,fill:type==="line",tension:.35}]},options,plugins:[emptyPlugin]});
+  };
+  build("activityChart","line","activity","Memory writes");
+  build("typeChart","bar","types","Memories");
+  build("sensitivityChart","doughnut","sensitivity","Memories",doughnutOptions);
+  build("workspaceChart","bar","workspaces","Memories");
+  build("trustChart","bar","trust","Memories");
+  build("sourceChart","doughnut","sources","Memories",doughnutOptions);
 }
 function initMemoryGraph(){
   const canvas=document.getElementById("memoryGraphCanvas");
   const raw=document.getElementById("memoryGraphData");
   if(!canvas||!raw) return;
   const data=JSON.parse(raw.textContent);
-  graphNodeCount.textContent=data.nodes.length;
-  graphEdgeCount.textContent=data.edges.length;
+  const graphNodeCount=document.getElementById("graphNodeCount");
+  const graphEdgeCount=document.getElementById("graphEdgeCount");
+  const graphFilter=document.getElementById("graphFilter");
+  const graphDetails=document.getElementById("graphDetails");
+  if(graphNodeCount) graphNodeCount.textContent=data.nodes.length;
+  if(graphEdgeCount) graphEdgeCount.textContent=data.edges.length;
   const ctx=canvas.getContext("2d");
   const colors={memory:"#38e88f",agent:"#9cffcb",workspace:"#f2c94c",session:"#7dd3a8",tag:"#ff8aa0",type:"#c8ffe3"};
-  const nodeMap=Object.fromEntries(data.nodes.map(n=>[n.id,{...n,x:Math.random()*canvas.width,y:Math.random()*canvas.height,vx:0,vy:0}]));
-  const edges=data.edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]);
   const resize=()=>{const rect=canvas.getBoundingClientRect();canvas.width=rect.width*devicePixelRatio;canvas.height=620*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0)};
   resize();
-  function visibleNodes(){const f=graphFilter.value;return Object.values(nodeMap).filter(n=>!f||n.kind===f||n.kind==="memory")}
+  const nodeMap=Object.fromEntries(data.nodes.map(n=>[n.id,{...n,x:24+Math.random()*(canvas.width/devicePixelRatio-48),y:24+Math.random()*572,vx:0,vy:0}]));
+  const edges=data.edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]);
+  if(!data.nodes.length){
+    ctx.fillStyle="#74889e";
+    ctx.font="14px system-ui";
+    ctx.fillText("No graph data yet. Add memories to populate relationships.",24,42);
+    return;
+  }
+  function visibleNodes(){const f=graphFilter ? graphFilter.value : "";return Object.values(nodeMap).filter(n=>!f||n.kind===f||n.kind==="memory")}
   function tick(){
     const nodes=visibleNodes();
     for(const a of nodes){for(const b of nodes){if(a===b)continue;const dx=a.x-b.x,dy=a.y-b.y,d2=Math.max(dx*dx+dy*dy,80);const f=80/d2;a.vx+=dx*f;a.vy+=dy*f}}
@@ -402,8 +430,8 @@ function initMemoryGraph(){
     for(const n of nodes){ctx.fillStyle=colors[n.kind]||"#fff";ctx.beginPath();ctx.arc(n.x,n.y,n.kind==="memory"?7:10,0,Math.PI*2);ctx.fill();ctx.fillStyle="#dcecff";ctx.font="12px system-ui";ctx.fillText(n.label,n.x+12,n.y+4)}
     requestAnimationFrame(draw);
   }
-  canvas.addEventListener("click",ev=>{const r=canvas.getBoundingClientRect();const x=ev.clientX-r.left,y=ev.clientY-r.top;let found=null;for(const n of visibleNodes()){if(Math.hypot(n.x-x,n.y-y)<14)found=n}if(found){const related=edges.filter(e=>e.source===found.id||e.target===found.id).length;graphDetails.classList.remove("empty");graphDetails.innerHTML=`<h3>${found.label}</h3><p><span class="badge text-bg-info">${found.kind}</span></p><pre>${JSON.stringify(found.meta||{},null,2)}</pre><p class="text-secondary">${related} relationships</p>`}});
-  graphFilter.addEventListener("change",()=>{});
+  canvas.addEventListener("click",ev=>{const r=canvas.getBoundingClientRect();const x=ev.clientX-r.left,y=ev.clientY-r.top;let found=null;for(const n of visibleNodes()){if(Math.hypot(n.x-x,n.y-y)<14)found=n}if(found&&graphDetails){const related=edges.filter(e=>e.source===found.id||e.target===found.id).length;graphDetails.classList.remove("empty");graphDetails.innerHTML=`<h3>${escapeHtml(found.label)}</h3><p><span class="badge text-bg-info">${escapeHtml(found.kind)}</span></p><pre>${escapeHtml(JSON.stringify(found.meta||{},null,2))}</pre><p class="text-secondary">${related} relationships</p>`}});
+  if(graphFilter) graphFilter.addEventListener("change",()=>{});
   draw();
 }
 initMemoryGraph();

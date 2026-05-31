@@ -12,14 +12,17 @@
 <section class="grid-2 context-layout">
   <div class="panel">
     <div class="panel-heading"><h2>Context Request</h2><span>preview mode</span></div>
+    {% if not agents or not workspaces %}
+    <div class="alert alert-warning">Create at least one agent and one workspace before building context.</div>
+    {% endif %}
     <div class="row g-3">
       <div class="col-md-6">
         <label class="form-label">Agent</label>
-        <select id="ctxAgent" class="form-select">{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select>
+        <select id="ctxAgent" class="form-select" {% if not agents %}disabled{% endif %}>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% else %}<option value="">No agents available</option>{% endfor %}</select>
       </div>
       <div class="col-md-6">
         <label class="form-label">Workspace</label>
-        <select id="ctxWorkspace" class="form-select">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select>
+        <select id="ctxWorkspace" class="form-select" {% if not workspaces %}disabled{% endif %}>{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% else %}<option value="">No workspaces available</option>{% endfor %}</select>
       </div>
       <div class="col-md-4">
         <label class="form-label">Top K</label>
@@ -38,7 +41,7 @@
         <textarea id="ctxPrompt" class="form-control" rows="7" placeholder="Example: What should this agent remember before helping with the deployment plan?"></textarea>
       </div>
       <div class="col-12">
-        <button id="ctxBuildButton" type="button" class="btn btn-primary w-100"><i class="fa-solid fa-code-branch"></i> Build Agent Context</button>
+        <button id="ctxBuildButton" type="button" class="btn btn-primary w-100" {% if not agents or not workspaces %}disabled{% endif %}><i class="fa-solid fa-code-branch"></i> Build Agent Context</button>
       </div>
     </div>
   </div>

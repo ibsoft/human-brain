@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
@@ -31,12 +32,56 @@ def dashboard():
         "jobs": ConsolidationJob.query.count(),
         "sensitive": Memory.query.filter(Memory.sensitivity_level.in_(["high", "secret"]), Memory.deleted_at.is_(None)).count(),
     }
-    recent = Memory.query.order_by(Memory.created_at.desc()).limit(8).all()
+    recent = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(8).all()
     top_tags = {}
-    for memory in Memory.query.limit(500).all():
+    active_memories = Memory.query.filter(Memory.deleted_at.is_(None)).all()
+    for memory in active_memories[:500]:
         for tag in memory.tags or []:
             top_tags[tag] = top_tags.get(tag, 0) + 1
-    return render_template("dashboard.html", stats=stats, recent=recent, top_tags=top_tags, workspace_id=workspace_id)
+    today = datetime.utcnow().date()
+    chart_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+    chart_start = datetime.combine(chart_days[0], datetime.min.time())
+    writes_by_day = {day.isoformat(): 0 for day in chart_days}
+    for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= chart_start).all():
+        key = memory.created_at.date().isoformat()
+        if key in writes_by_day:
+            writes_by_day[key] += 1
+    activity_chart = {
+        "labels": [day.strftime("%a") for day in chart_days],
+        "values": [writes_by_day[day.isoformat()] for day in chart_days],
+    }
+    memory_types = {}
+    sensitivity = {}
+    source_counts = {}
+    workspace_names = {workspace.id: workspace.name for workspace in Workspace.query.all()}
+    workspace_counts = {}
+    trust_buckets = {"0.0-0.2": 0, "0.2-0.4": 0, "0.4-0.6": 0, "0.6-0.8": 0, "0.8-1.0": 0}
+    for memory in active_memories:
+        memory_types[memory.memory_type] = memory_types.get(memory.memory_type, 0) + 1
+        sensitivity[memory.sensitivity_level] = sensitivity.get(memory.sensitivity_level, 0) + 1
+        source_counts[memory.source] = source_counts.get(memory.source, 0) + 1
+        workspace_label = workspace_names.get(memory.workspace_id, f"Workspace {memory.workspace_id}")
+        workspace_counts[workspace_label] = workspace_counts.get(workspace_label, 0) + 1
+        score = max(0, min(memory.trust_score or 0, 1))
+        if score < 0.2:
+            trust_buckets["0.0-0.2"] += 1
+        elif score < 0.4:
+            trust_buckets["0.2-0.4"] += 1
+        elif score < 0.6:
+            trust_buckets["0.4-0.6"] += 1
+        elif score < 0.8:
+            trust_buckets["0.6-0.8"] += 1
+        else:
+            trust_buckets["0.8-1.0"] += 1
+    dashboard_charts = {
+        "activity": activity_chart,
+        "types": {"labels": list(memory_types.keys()), "values": list(memory_types.values())},
+        "sensitivity": {"labels": list(sensitivity.keys()), "values": list(sensitivity.values())},
+        "workspaces": {"labels": list(workspace_counts.keys()), "values": list(workspace_counts.values())},
+        "trust": {"labels": list(trust_buckets.keys()), "values": list(trust_buckets.values())},
+        "sources": {"labels": list(source_counts.keys()), "values": list(source_counts.values())},
+    }
+    return render_template("dashboard.html", stats=stats, recent=recent, top_tags=top_tags, workspace_id=workspace_id, dashboard_charts=dashboard_charts)
 
 
 @main_bp.route("/memories")
@@ -63,11 +108,25 @@ def memory_asset(asset_token):
 @login_required
 @minimum_role("operator")
 def web_add_memory():
+    if not Agent.query.first():
+        flash("Create an agent before storing memories.", "danger")
+        return redirect(url_for("main.agents"))
+    if not Workspace.query.first():
+        flash("Create a workspace before storing memories.", "danger")
+        return redirect(url_for("main.workspaces"))
+    agent = db.session.get(Agent, request.form.get("agent_id", type=int))
+    workspace = db.session.get(Workspace, request.form.get("workspace_id", type=int))
+    if not agent or not agent.active:
+        flash("Choose an active agent before storing a memory.", "danger")
+        return redirect(url_for("main.memories"))
+    if not workspace:
+        flash("Choose a valid workspace before storing a memory.", "danger")
+        return redirect(url_for("main.memories"))
     input_mode = request.form.get("memory_input_mode", "single")
     tags = [tag.strip() for tag in request.form.get("tags", "").split(",") if tag.strip()]
     payload = {
-        "agent_id": int(request.form["agent_id"]),
-        "workspace_id": int(request.form["workspace_id"]),
+        "agent_id": agent.id,
+        "workspace_id": workspace.id,
         "title": request.form.get("title"),
         "content": request.form.get("content", "").strip(),
         "memory_type": request.form.get("memory_type", "long-term"),
@@ -124,10 +183,18 @@ def sessions():
 @login_required
 @minimum_role("operator")
 def web_start_session():
+    agent = db.session.get(Agent, request.form.get("agent_id", type=int))
+    workspace = db.session.get(Workspace, request.form.get("workspace_id", type=int))
+    if not agent or not agent.active:
+        flash("Create or choose an active agent before starting a session.", "danger")
+        return redirect(url_for("main.sessions"))
+    if not workspace:
+        flash("Create or choose a workspace before starting a session.", "danger")
+        return redirect(url_for("main.sessions"))
     session = SessionService().start(
         {
-            "agent_id": int(request.form["agent_id"]),
-            "workspace_id": int(request.form["workspace_id"]),
+            "agent_id": agent.id,
+            "workspace_id": workspace.id,
             "title": request.form.get("title") or "Manual session",
         }
     )
@@ -179,10 +246,18 @@ def agents():
 @login_required
 @minimum_role("operator")
 def create_agent():
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Enter an agent name.", "danger")
+        return redirect(url_for("main.agents"))
+    workspace_id = request.form.get("workspace_id", type=int)
+    if workspace_id and not db.session.get(Workspace, workspace_id):
+        flash("Choose a valid workspace for the agent.", "danger")
+        return redirect(url_for("main.agents"))
     AdminService.create_agent(
-        request.form.get("name", ""),
+        name,
         request.form.get("description", ""),
-        [request.form["workspace_id"]] if request.form.get("workspace_id") else [],
+        [workspace_id] if workspace_id else [],
     )
     flash("Agent created.", "success")
     return redirect(url_for("main.agents"))
@@ -541,7 +616,19 @@ def api_keys():
 @login_required
 @minimum_role("operator")
 def create_api_key():
-    raw, _ = AdminService.create_api_key(int(request.form["agent_id"]), request.form.get("name", "Agent key"))
+    agent_id = request.form.get("agent_id", type=int)
+    if not agent_id:
+        flash("Create an agent before creating an API key.", "danger")
+        return redirect(url_for("main.api_keys"))
+    agent = db.session.get(Agent, agent_id)
+    if not agent or not agent.active:
+        flash("Choose an active agent before creating an API key.", "danger")
+        return redirect(url_for("main.api_keys"))
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Enter a name for the API key.", "danger")
+        return redirect(url_for("main.api_keys"))
+    raw, _ = AdminService.create_api_key(agent.id, name)
     flash(f"New API key, copy it now: {raw}", "warning")
     return redirect(url_for("main.api_keys"))
 

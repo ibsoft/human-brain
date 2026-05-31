@@ -4,6 +4,9 @@
 </section>
 <section class="panel mb-4">
   <div class="panel-heading"><h2>Add Memory</h2><span class="text-secondary">Manual capture</span></div>
+  {% if not agents or not workspaces %}
+  <div class="alert alert-warning">Create at least one agent and one workspace before storing memories.</div>
+  {% endif %}
   <form method="post" enctype="multipart/form-data" class="row g-3">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="col-12">
@@ -13,8 +16,8 @@
         <label><input type="radio" name="memory_input_mode" value="image"> <i class="fa-solid fa-image"></i> Upload Image</label>
       </div>
     </div>
-    <div class="col-md-3"><select class="form-select" name="agent_id">{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
-    <div class="col-md-3"><select class="form-select" name="workspace_id">{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><select class="form-select" name="agent_id" required {% if not agents %}disabled{% endif %}>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% else %}<option value="">No agents available</option>{% endfor %}</select></div>
+    <div class="col-md-3"><select class="form-select" name="workspace_id" required {% if not workspaces %}disabled{% endif %}>{% for w in workspaces %}<option value="{{ w.id }}">{{ w.name }}</option>{% else %}<option value="">No workspaces available</option>{% endfor %}</select></div>
     <div class="col-md-3"><input class="form-control" name="title" placeholder="Title"></div>
     <div class="col-md-3"><select class="form-select" name="memory_type"><option>long-term</option><option>task</option><option>project</option><option>preference</option><option>security-sensitive</option><option>vision</option></select></div>
     <div class="col-12 memory-mode-field mode-single"><textarea class="form-control" name="content" rows="3" placeholder="Memory content"></textarea></div>
@@ -27,7 +30,7 @@
     <div class="col-md-2 memory-mode-field mode-file"><input class="form-control" name="chunk_size" type="number" min="500" step="500" value="4000" placeholder="Chunk size"></div>
     <div class="col-md-4 memory-mode-field mode-image"><div class="upload-hint"><i class="fa-solid fa-vector-square"></i> Image uploads store a local visual vector for correlation.</div></div>
     <div class="col-md-2"><div class="form-check form-switch mt-2"><input class="form-check-input" name="confirmed" type="checkbox"><label class="form-check-label">Confirm</label></div></div>
-    <div class="col-md-2"><button class="btn btn-primary w-100"><i class="fa-solid fa-plus"></i> Store</button></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100" {% if not agents or not workspaces %}disabled{% endif %}><i class="fa-solid fa-plus"></i> Store</button></div>
   </form>
 </section>
 <section class="panel"><div class="panel-heading"><h2>Active Memories</h2><span>{{ memories|length }} shown</span></div>{% include "partials/memory_table.html" %}{% include "partials/pagination.html" %}</section>
