@@ -19,13 +19,13 @@
     </div>
     <div class="sidebar-status"><span></span> <b>Local-first mode</b></div>
     <div class="accordion nav-accordion" id="navAccordion">
-      {% set groups = [
+      {% set nav_groups = [
         ('Core','fa-gauge',[('main.dashboard','fa-gauge','Dashboard'),('main.memories','fa-layer-group','Memories'),('main.search_page','fa-magnifying-glass','Semantic Search'),('main.context_builder','fa-code-branch','Context Builder')]),
         ('Operations','fa-gears',[('main.sessions','fa-clock-rotate-left','Sessions'),('main.agents','fa-robot','Agents'),('main.workspaces','fa-building','Workspaces'),('vision.vision_page','fa-video','Vision')]),
         ('Review','fa-shield-halved',[('main.timeline','fa-timeline','Timeline'),('main.graph','fa-diagram-project','Memory Graph'),('main.duplicates','fa-clone','Duplicate Detector'),('main.forget_center','fa-eraser','Forget Center'),('main.sensitive_review','fa-shield-halved','Sensitive Review'),('main.audit_logs','fa-clipboard-list','Audit Logs')]),
         ('Admin','fa-screwdriver-wrench',[('main.api_keys','fa-key','API Keys'),('main.backups','fa-database','Backups'),('main.agent_logs','fa-file-lines','Agent Logs'),('main.settings','fa-sliders','Settings'),('main.system_health','fa-heart-pulse','System Health')])
       ] %}
-      {% for group, group_icon, links in groups %}
+      {% for group, group_icon, links in nav_groups %}
       <div class="accordion-item">
         <h2 class="accordion-header">
           <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#navGroup{{ loop.index }}">
@@ -80,6 +80,21 @@
 </div>
 <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 <div id="globalSpinner" class="global-spinner" hidden><div class="spinner-card"><div class="spinner-border text-success" role="status"></div><span>Working...</span></div></div>
+<div class="modal fade" id="confirmActionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="confirmActionTitle">Confirm action</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="confirmActionMessage">This action cannot be undone.</div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmActionButton">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="tableDetailModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content bg-dark text-light">

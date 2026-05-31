@@ -148,6 +148,51 @@ function initGlobalButtons(){
   });
   initMemoryInputModes();
   initBulkMemoryActions();
+  initConfirmActionForms();
+}
+function openConfirmAction({title="Confirm action", message="This action cannot be undone.", confirmText="Delete", confirmClass="btn-danger", onConfirm}){
+  const modalEl = document.getElementById("confirmActionModal");
+  const titleEl = document.getElementById("confirmActionTitle");
+  const messageEl = document.getElementById("confirmActionMessage");
+  const button = document.getElementById("confirmActionButton");
+  if(!modalEl || !button || !window.bootstrap){
+    if(onConfirm) onConfirm();
+    return;
+  }
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  button.textContent = confirmText;
+  button.className = `btn ${confirmClass}`;
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const nextButton = button.cloneNode(true);
+  button.replaceWith(nextButton);
+  nextButton.addEventListener("click",()=>{
+    modal.hide();
+    if(onConfirm) onConfirm();
+  },{once:true});
+  modal.show();
+}
+function initConfirmActionForms(){
+  document.querySelectorAll("form[data-confirm-modal]").forEach(form=>{
+    if(form.dataset.confirmReady === "1") return;
+    form.dataset.confirmReady = "1";
+    form.addEventListener("submit",event=>{
+      if(form.dataset.confirmBypass === "1") return;
+      event.preventDefault();
+      hideGlobalSpinner();
+      openConfirmAction({
+        title: form.dataset.confirmTitle || "Confirm delete",
+        message: form.dataset.confirmMessage || "This action cannot be undone.",
+        confirmText: form.dataset.confirmText || "Delete",
+        confirmClass: form.dataset.confirmClass || "btn-danger",
+        onConfirm: ()=>{
+          form.dataset.confirmBypass = "1";
+          showGlobalSpinner();
+          HTMLFormElement.prototype.submit.call(form);
+        }
+      });
+    });
+  });
 }
 function initBulkMemoryActions(){
   const form = document.getElementById("bulkMemoryDeleteForm");
@@ -181,18 +226,25 @@ function initBulkMemoryActions(){
       refresh();
       return;
     }
-    if(!confirm(`Permanently delete ${ids.length} selected memories?`)){
-      event.preventDefault();
-      hideGlobalSpinner();
-      return;
-    }
-    ids.slice(0,25).forEach(id=>{
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "memory_ids";
-      input.value = id;
-      input.dataset.bulkMemoryId = "1";
-      form.appendChild(input);
+    event.preventDefault();
+    hideGlobalSpinner();
+    openConfirmAction({
+      title: "Delete selected memories",
+      message: `Permanently delete ${ids.length} selected memories? This action cannot be undone.`,
+      confirmText: "Delete selected",
+      confirmClass: "btn-danger",
+      onConfirm: ()=>{
+        ids.slice(0,25).forEach(id=>{
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "memory_ids";
+          input.value = id;
+          input.dataset.bulkMemoryId = "1";
+          form.appendChild(input);
+        });
+        showGlobalSpinner();
+        HTMLFormElement.prototype.submit.call(form);
+      }
     });
   });
   refresh();

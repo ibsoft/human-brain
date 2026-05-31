@@ -900,7 +900,7 @@ def web_context():
 @main_bp.get("/duplicates")
 @login_required
 def duplicates():
-    groups = AdminService.duplicate_groups()
+    groups = [group for group in AdminService.duplicate_groups() if len(group.get("memories") or []) > 1]
     return render_template("duplicates.html", groups=groups)
 
 
