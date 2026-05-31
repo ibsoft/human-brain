@@ -423,7 +423,8 @@ class MemoryService:
 
 def serialize_search_result_compact(memory, score, semantic_score, entry=None):
     entry = entry or {}
-    return {
+    assets = MemoryAsset.query.filter_by(memory_id=memory.id).all()
+    payload = {
         "memory_id": memory.id,
         "title": memory.title,
         "content": memory.content,
@@ -438,6 +439,9 @@ def serialize_search_result_compact(memory, score, semantic_score, entry=None):
         "trust_score": memory.trust_score,
         "importance_score": memory.importance_score,
     }
+    if assets:
+        payload["assets"] = [serialize_asset(asset) for asset in assets]
+    return payload
 
 
 def serialize_memory(memory, include_assets=True):

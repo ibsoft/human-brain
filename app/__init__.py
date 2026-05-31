@@ -34,6 +34,8 @@ def create_app(config_name="development"):
     register_blueprints(app)
     register_security_headers(app)
     register_template_filters(app)
+    register_template_context(app)
+    register_agent_api_logging(app)
     configure_celery(app)
     register_cli(app)
     warmup_vectors(app)
@@ -53,6 +55,72 @@ def register_template_filters(app):
             except ValueError:
                 return value
         return value.strftime("%Y-%m-%d %H:%M")
+
+
+def register_template_context(app):
+    @app.context_processor
+    def inject_version():
+        from app.services.git_version_service import git_version
+
+        return {"git_version": git_version()}
+
+
+def register_agent_api_logging(app):
+    @app.before_request
+    def capture_agent_request():
+        from flask import g, request
+
+        if not request.path.startswith("/api/v1/"):
+            return
+        if request.path.startswith("/api/v1/vision/stream"):
+            return
+        if request.mimetype and request.mimetype.startswith("multipart/"):
+            body = {
+                "form": {key: request.form.get(key) for key in request.form.keys()},
+                "files": [file.filename for files in request.files.lists() for file in files[1]],
+            }
+        else:
+            body = _redact_api_log_text(request.get_data(cache=True, as_text=True)[:4000])
+        g.agent_log_request = {
+            "method": request.method,
+            "path": request.path,
+            "query": request.query_string.decode("utf-8", errors="replace"),
+            "remote_addr": request.headers.get("X-Forwarded-For", request.remote_addr),
+            "body": body,
+            "content_type": request.content_type,
+        }
+
+    @app.after_request
+    def write_agent_response(response):
+        from flask import g, request
+
+        record = getattr(g, "agent_log_request", None)
+        if not record:
+            return response
+        try:
+            from app.services.agent_log_service import AgentLogService
+
+            level = "warning" if response.status_code >= 400 else "info"
+            response_body = ""
+            if response.content_type and ("json" in response.content_type or "text" in response.content_type):
+                response_body = response.get_data(as_text=True)[:4000]
+            record.update(
+                {
+                    "status": response.status_code,
+                    "agent_id": getattr(getattr(g, "agent", None), "id", None),
+                    "response": _redact_api_log_text(response_body),
+                }
+            )
+            AgentLogService().write(record, level=level)
+        except Exception:
+            app.logger.exception("Could not write agent API JSONL log")
+        return response
+
+
+def _redact_api_log_text(value):
+    if not value:
+        return value
+    return str(value).replace("X-API-Key", "X-API-Key-REDACTED")
 
 
 def register_blueprints(app):
@@ -101,10 +169,18 @@ def configure_logging(app):
 
 
 def configure_celery(app):
+    from celery.schedules import crontab
+
     celery.conf.update(
         broker_url=app.config["CELERY_BROKER_URL"],
         result_backend=app.config["CELERY_RESULT_BACKEND"],
         task_always_eager=app.config.get("CELERY_TASK_ALWAYS_EAGER", False),
+        beat_schedule={
+            "duplicate-consolidation-settings-check": {
+                "task": "consolidate_duplicate_memories",
+                "schedule": crontab(minute=0, hour="*"),
+            }
+        },
     )
 
     class ContextTask(celery.Task):

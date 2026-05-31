@@ -29,6 +29,8 @@ Agents should treat Human-Brain as the only durable source of truth for remember
 
 Agents should store new durable facts, decisions, tasks, preferences, corrections, and session outcomes back into Human-Brain. When information changes, agents should update, archive, delete, or forget stale memories instead of silently relying on old facts.
 
+Agents should use sessions for meaningful work. Start a session before a multi-turn task, include `session_id` on memories and context requests when relevant, add important messages, end the session, then consolidate it into durable memories.
+
 Use `docs/agents/SKILL.md` as the full agent operating instruction pack. It covers search, add, update, delete, forget, sessions, consolidation, workspaces, correlations, vision, assets, health checks, and answer rules.
 
 ## Memory Search Protocol
@@ -77,6 +79,8 @@ Agents should use:
 4. Correlations to pull adjacent project/task/file/image context.
 5. `assets[].url` when an image or uploaded file should be referenced.
 6. `timing.elapsed_ms` to monitor retrieval latency.
+
+Compact agent search results include `assets[]` when a memory has uploaded assets. When the user asks to see an uploaded image or document again, use `assets[].url`; do not answer with only the stored text description.
 
 ## Correlation Protocol
 
@@ -194,6 +198,60 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
 ```
 
 The replacement endpoint keeps the existing memory ID and tokenized asset URL, replaces the stored file, refreshes extracted text or image metadata, refreshes asset vectors and FAISS memory vectors, and reruns correlations. Use `title` or `tags` multipart fields to update those memory fields during replacement. Do not use `ingest_mode=chunks` for replacement; upload a new chunked document when chunk boundaries need to change.
+
+## Sessions and Jobs
+
+Agents must create and use sessions for meaningful tasks:
+
+```bash
+SESSION_ID=$(curl -s -X POST "$HUMAN_BRAIN_URL/api/v1/session/start" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"workspace_id\":$HUMAN_BRAIN_WORKSPACE_ID,\"title\":\"User task\"}" | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
+```
+
+Add important messages:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/add-message" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID,\"role\":\"user\",\"content\":\"User request or durable decision.\"}"
+```
+
+End and consolidate:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/end" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID}"
+
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/consolidate" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"session_id\":$SESSION_ID}"
+```
+
+Jobs are background worker records, currently used for session consolidation. The dashboard job count shows queued, running, completed, and failed jobs.
+
+List jobs:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/jobs?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Get one job:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/jobs/123" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+## Operations
+
+Admins can enable agent API JSONL logging in Settings. Logs are rotated and visible under Agent Logs, with request body, response body, status, method, path, and agent id. Use this to debug what an agent sent and how Human-Brain answered.
+
+Admins can enable scheduled duplicate consolidation in Settings. The duplicate consolidation worker finds exact or near-duplicate memories, writes one consolidated memory, and optionally archives the duplicate source memories.
+
+Backup archives can be created, downloaded, restored, or deleted from the Backups page.
 
 File memories:
 

@@ -21,6 +21,8 @@ Use the Memory Firewall. Never inject high or secret sensitivity memories into n
 
 Use sessions for multi-turn work. Start a session for a meaningful task, add important user/assistant messages, end the session when complete, and consolidate it so durable memories are created.
 
+When the user asks to see an uploaded file or image again, search Human-Brain and use `assets[].url` from the memory result. Do not answer with only the memory text if an asset URL is available.
+
 Use context building before final answers for complex tasks. Search gives evidence; context/build gives a prompt-ready memory block.
 ```
 
@@ -260,6 +262,15 @@ curl "$HUMAN_BRAIN_URL/api/v1/session/$SESSION_ID" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
+Check consolidation jobs:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/jobs?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Jobs are background worker records. Session consolidation creates jobs; duplicate consolidation, index rebuilds, backup maintenance, retention, and reports may also run as worker tasks. If a job fails, inspect its `error` field and report the operational problem.
+
 ## Workspaces
 
 Agents must respect workspace isolation:
@@ -400,6 +411,7 @@ Replacement keeps the memory ID and tokenized asset URL stable, replaces the sto
 Agents can retrieve and reason over resulting memory assets through search results and memory serialization:
 
 - `assets[].url` points to the tokenized asset URL.
+- If the user asks to show an uploaded image or file, return or embed `assets[].url`.
 - File memories include extracted text when parsers are installed.
 - Image memories include metadata and local visual vectors.
 - Do not infer facts from a file or image unless Human-Brain has stored extracted content, metadata, or a saved vision memory for it.
@@ -426,6 +438,16 @@ Check performance:
 curl "$HUMAN_BRAIN_URL/api/v1/performance" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
+
+## Operator Features
+
+Settings controls:
+
+- Scheduled duplicate consolidation: finds duplicate/similar memories, writes one consolidated memory, and can archive duplicate source memories.
+- Agent API JSONL logging: records agent requests and responses with rotation; admins can inspect logs in the Agent Logs page.
+- Backup schedule: local policy for backup maintenance.
+
+Agents should not manage these settings directly through the API. If duplicate consolidation, logging, jobs, or backups are misconfigured, report that an operator/admin action is needed.
 
 If FAISS is stale or missing, report that index rebuild is needed. Rebuilding indexes is an operator/admin maintenance action.
 

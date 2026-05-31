@@ -74,6 +74,26 @@ def detect_duplicates_task():
     return duplicates
 
 
+@celery.task(name="consolidate_duplicate_memories")
+def consolidate_duplicate_memories_task():
+    settings = SettingsService.get("duplicate_consolidation", {})
+    if not settings.get("enabled"):
+        return {"status": "disabled"}
+    now = datetime.utcnow()
+    configured_hour = int(str(settings.get("time", "03:00")).split(":", 1)[0] or 3)
+    if now.hour != configured_hour:
+        return {"status": "skipped", "reason": "outside_configured_hour", "configured_time": settings.get("time")}
+    if settings.get("frequency") == "weekly" and now.weekday() != 0:
+        return {"status": "skipped", "reason": "outside_weekly_window"}
+    from app.services.duplicate_service import DuplicateConsolidationService
+
+    result = DuplicateConsolidationService().run_for_all_workspaces(
+        archive_duplicates=bool(settings.get("archive_duplicates", True)),
+        min_group_size=int(settings.get("min_group_size", 2)),
+    )
+    return {"status": "completed", "workspaces": result}
+
+
 @celery.task(name="calculate_trust_scores")
 def calculate_trust_scores_task():
     for memory in Memory.query.filter(Memory.deleted_at.is_(None)).all():
@@ -106,4 +126,3 @@ def cleanup_old_snapshots_task():
 def daily_memory_report_task():
     since = datetime.utcnow() - timedelta(days=1)
     return {"new_memories": Memory.query.filter(Memory.created_at >= since).count()}
-

@@ -496,6 +496,8 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
 
 `/api/v1/memory/upload` accepts multipart form data. Use `uploads` for one or more files, or `file` for a single file. Documents support `ingest_mode=full` for one memory per file and `ingest_mode=chunks` for one memory per extracted text chunk. Uploaded assets are returned in `memory.assets[]` with tokenized `url` values.
 
+Agent search responses include uploaded asset links. If an agent needs to show a previously uploaded image or document, it should search memory and use `assets[].url`.
+
 Replace the actual file behind an uploaded document or image memory:
 
 ```bash
@@ -521,6 +523,13 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/add-message" \
 curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/consolidate" \
   -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"session_id\":$SESSION_ID}"
+```
+
+Inspect background jobs created by session consolidation:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/jobs?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 Retrieve context for an AI agent:
@@ -728,6 +737,16 @@ PostgreSQL production:
 pg_dump "$DATABASE_URL" > backups/human_brain.sql
 psql "$DATABASE_URL" < backups/human_brain.sql
 ```
+
+The Backups page can create, download, restore, and delete local backup archives.
+
+## Agent Logs And Jobs
+
+Settings can enable rotated JSONL agent API logging. Logs are stored under `logs/agent_api/` and are visible in the Agent Logs page with pagination, search, and detail modals. Each entry records the API path, method, agent id, request payload or uploaded filenames, response payload, and status.
+
+Dashboard Jobs are background worker records for operations such as session consolidation. Agents can inspect their jobs with `/api/v1/jobs`; operators can use the dashboard to monitor queued, running, completed, and failed jobs.
+
+Settings can also enable scheduled duplicate consolidation. The worker finds duplicate/similar memories, creates one consolidated memory, and optionally archives the duplicate source memories.
 
 ## YOLO Setup
 

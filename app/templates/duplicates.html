@@ -1,9 +1,11 @@
 {% extends "base.html" %}{% block page_title %}Duplicate Detector{% endblock %}{% block content %}
 <section class="hero-panel mb-4">
-  <div>
-    <div class="eyebrow">Memory Hygiene</div>
-    <h2>Duplicate and near-duplicate review</h2>
-    <p>Exact content hashes are prevented at write time, so this page also groups similar titles and content signatures for cleanup.</p>
+  <div><div class="eyebrow">Duplicate Maintenance</div><h2>Review and consolidate duplicate memories</h2><p>Scheduled duplicate consolidation is configured in Settings. Run it manually here when needed.</p></div>
+  <div class="hero-actions">
+    <form method="post" action="{{ url_for('main.consolidate_duplicates') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn btn-primary"><i class="fa-solid fa-compress"></i> Consolidate Duplicates</button>
+    </form>
   </div>
 </section>
 <section class="panel">

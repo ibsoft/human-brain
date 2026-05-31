@@ -193,6 +193,51 @@ def test_agent_replace_uploaded_document_asset(client, app, api_headers):
     Path(new_path).unlink(missing_ok=True)
 
 
+def test_compact_agent_search_includes_asset_urls(client, app, api_headers):
+    upload = client.post(
+        "/api/v1/memory/upload",
+        data={
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "title": "Searchable image asset",
+            "memory_type": "vision",
+            "tags": "searchable,image",
+            "confirmed": "true",
+            "uploads": (BytesIO(b"image-bytes"), "searchable.jpg"),
+        },
+        headers=api_headers,
+        content_type="multipart/form-data",
+    )
+    assert upload.status_code == 201
+    memory = upload.get_json()["memories"][0]
+    search = client.get(
+        f"/api/v1/search?workspace_id={app.config['TEST_WORKSPACE_ID']}&query=searchable%20image&mode=agent&compact=true",
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    matches = [item for item in search.get_json()["results"] if item["memory_id"] == memory["id"]]
+    assert matches
+    assert matches[0]["assets"]
+    assert matches[0]["assets"][0]["url"]
+    with app.app_context():
+        stored_path = MemoryAsset.query.filter_by(memory_id=memory["id"]).one().stored_path
+    Path(stored_path).unlink(missing_ok=True)
+
+
+def test_agent_can_list_session_jobs(client, app, api_headers):
+    start = client.post(
+        "/api/v1/session/start",
+        json={"workspace_id": app.config["TEST_WORKSPACE_ID"], "title": "Job list test"},
+        headers=api_headers,
+    )
+    assert start.status_code == 201
+    session_id = start.get_json()["session_id"]
+    consolidate = client.post("/api/v1/session/consolidate", json={"session_id": session_id}, headers=api_headers)
+    assert consolidate.status_code == 202
+    jobs = client.get(f"/api/v1/jobs?workspace_id={app.config['TEST_WORKSPACE_ID']}", headers=api_headers)
+    assert jobs.status_code == 200
+    assert any(job["id"] == consolidate.get_json()["job_id"] for job in jobs.get_json()["jobs"])
+
+
 def test_viewer_cannot_create_agent(client, app):
     with app.app_context():
         admin = User.query.filter_by(email="admin@example.com").first()

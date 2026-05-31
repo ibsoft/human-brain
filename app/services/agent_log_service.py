@@ -1,0 +1,70 @@
+import json
+from datetime import datetime
+from pathlib import Path
+
+from flask import current_app
+
+
+class AgentLogService:
+    LEVELS = {"debug": 10, "info": 20, "warning": 30}
+
+    def __init__(self):
+        self.log_dir = Path(current_app.root_path).parent / "logs" / "agent_api"
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+
+    def enabled(self):
+        from app.services.settings_service import SettingsService
+
+        return bool(SettingsService.get("agent_api_logging_enabled", True))
+
+    def should_log(self, level):
+        from app.services.settings_service import SettingsService
+
+        configured = str(SettingsService.get("agent_api_log_level", "info")).lower()
+        return self.LEVELS.get(level, 20) >= self.LEVELS.get(configured, 20)
+
+    def write(self, record, level="info"):
+        if not self.enabled() or not self.should_log(level):
+            return
+        record = {"ts": datetime.utcnow().isoformat(), "level": level, **record}
+        path = self._active_path()
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+        self._rotate_if_needed(path)
+
+    def items(self, query="", page=1, per_page=50):
+        query = (query or "").lower()
+        rows = []
+        for path in sorted(self.log_dir.glob("agent_api*.jsonl"), reverse=True):
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line_no, line in enumerate(handle, 1):
+                    if query and query not in line.lower():
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except ValueError:
+                        payload = {"ts": "", "level": "warning", "error": "Invalid JSONL", "raw": line}
+                    payload["_file"] = path.name
+                    payload["_line"] = line_no
+                    payload["_raw"] = line
+                    rows.append(payload)
+        rows.sort(key=lambda row: row.get("ts") or "", reverse=True)
+        total = len(rows)
+        start = max(page - 1, 0) * per_page
+        return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
+
+    def _active_path(self):
+        return self.log_dir / "agent_api.jsonl"
+
+    def _rotate_if_needed(self, path):
+        from app.services.settings_service import SettingsService
+
+        max_bytes = int(SettingsService.get("agent_api_log_max_mb", 10)) * 1024 * 1024
+        keep = max(1, int(SettingsService.get("agent_api_log_keep_files", 5)))
+        if not path.exists() or path.stat().st_size <= max_bytes:
+            return
+        stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        path.rename(self.log_dir / f"agent_api_{stamp}.jsonl")
+        rotated = sorted(self.log_dir.glob("agent_api_*.jsonl"), key=lambda item: item.stat().st_mtime, reverse=True)
+        for old in rotated[keep:]:
+            old.unlink(missing_ok=True)
