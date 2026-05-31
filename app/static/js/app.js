@@ -147,6 +147,55 @@ function initGlobalButtons(){
     });
   });
   initMemoryInputModes();
+  initBulkMemoryActions();
+}
+function initBulkMemoryActions(){
+  const form = document.getElementById("bulkMemoryDeleteForm");
+  if(!form || form.dataset.bulkReady === "1") return;
+  form.dataset.bulkReady = "1";
+  const selectAll = document.getElementById("memorySelectAll");
+  const checkboxes = Array.from(document.querySelectorAll(".memory-select"));
+  const button = document.getElementById("bulkMemoryDeleteButton");
+  const count = document.getElementById("bulkMemorySelectionCount");
+  const selectedIds = () => checkboxes.filter(item=>item.checked).map(item=>item.value);
+  const refresh = () => {
+    const selected = selectedIds().length;
+    if(button) button.disabled = selected === 0;
+    if(count) count.textContent = `${selected} selected`;
+    if(selectAll){
+      selectAll.checked = selected > 0 && selected === checkboxes.length;
+      selectAll.indeterminate = selected > 0 && selected < checkboxes.length;
+    }
+  };
+  selectAll?.addEventListener("change",()=>{
+    checkboxes.forEach(item=>{ item.checked = selectAll.checked; });
+    refresh();
+  });
+  checkboxes.forEach(item=>item.addEventListener("change",refresh));
+  form.addEventListener("submit",event=>{
+    form.querySelectorAll('input[data-bulk-memory-id="1"]').forEach(item=>item.remove());
+    const ids = selectedIds();
+    if(!ids.length){
+      event.preventDefault();
+      hideGlobalSpinner();
+      refresh();
+      return;
+    }
+    if(!confirm(`Permanently delete ${ids.length} selected memories?`)){
+      event.preventDefault();
+      hideGlobalSpinner();
+      return;
+    }
+    ids.slice(0,25).forEach(id=>{
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "memory_ids";
+      input.value = id;
+      input.dataset.bulkMemoryId = "1";
+      form.appendChild(input);
+    });
+  });
+  refresh();
 }
 async function copySearchJson(){
   await copyJsonOutput("searchOutput","copySearchJson");
