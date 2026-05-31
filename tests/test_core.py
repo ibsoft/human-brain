@@ -717,6 +717,13 @@ def test_vision_status_includes_yolo_device(client, app):
         assert status["device"] == "cuda:0"
 
 
+def test_yolo26_settings_are_sanitized_to_default(app):
+    with app.app_context():
+        SettingsService.update({"yolo_model": "models/yolo26x.pt", "vision_models": ["models/yolo26x.pt"]})
+        assert SettingsService.get("yolo_model") == "models/yolov8n.pt"
+        assert SettingsService.get("vision_models") == ["models/yolov8n.pt"]
+
+
 def test_vision_model_error_message_explains_yolo26_runtime_mismatch(app):
     with app.app_context():
         message = VisionService()._model_error_message("models/yolo26x.pt", AttributeError("Can't get attribute 'C3k2'"))

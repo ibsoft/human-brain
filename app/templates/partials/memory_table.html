@@ -15,7 +15,7 @@
       data-sensitivity="{{ memory.sensitivity_level|e }}"
       data-visibility="{{ memory.visibility|e }}"
       data-confirmed="{{ 'true' if memory.confirmed else 'false' }}">
-    {% if enable_bulk_actions %}<td><input class="form-check-input memory-select" type="checkbox" name="memory_ids" value="{{ memory.id }}" form="bulkMemoryDeleteForm" title="Select memory {{ memory.id }}"></td>{% endif %}
+    {% if enable_bulk_actions %}<td><input class="form-check-input memory-select" type="checkbox" value="{{ memory.id }}" title="Select memory {{ memory.id }}"></td>{% endif %}
     <td>{{ memory.id }}</td><td>{{ memory.title }}</td><td><span class="badge text-bg-secondary">{{ memory.memory_type }}</span></td>
     <td>{% for tag in memory.tags or [] %}<span class="badge text-bg-dark border">{{ tag }}</span> {% endfor %}</td>
     <td><span class="trust">{{ "%.2f"|format(memory.trust_score) }}</span></td>

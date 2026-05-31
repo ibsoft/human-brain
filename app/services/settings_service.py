@@ -243,6 +243,18 @@ def default_value(key):
     return value
 
 
+def _sanitize_yolo_settings():
+    default_model = DEFAULT_SETTINGS["yolo_model"]["value"]
+    model_setting = AppSetting.query.filter_by(key="yolo_model").first()
+    if model_setting and "yolo26" in str(model_setting.value).lower():
+        model_setting.value = default_model
+    models_setting = AppSetting.query.filter_by(key="vision_models").first()
+    if models_setting and isinstance(models_setting.value, list):
+        models_setting.value = [model for model in models_setting.value if "yolo26" not in str(model).lower()]
+        if default_model not in models_setting.value:
+            models_setting.value.insert(0, default_model)
+
+
 class SettingsService:
     @staticmethod
     def ensure_defaults():
@@ -261,6 +273,7 @@ class SettingsService:
                         description=payload["description"],
                     )
                 )
+        _sanitize_yolo_settings()
         db.session.commit()
 
     @staticmethod
@@ -283,6 +296,12 @@ class SettingsService:
     def update(values):
         SettingsService.ensure_defaults()
         for key, value in values.items():
+            if key == "yolo_model" and "yolo26" in str(value).lower():
+                value = DEFAULT_SETTINGS["yolo_model"]["value"]
+            if key == "vision_models" and isinstance(value, list):
+                value = [model for model in value if "yolo26" not in str(model).lower()]
+                if DEFAULT_SETTINGS["yolo_model"]["value"] not in value:
+                    value.insert(0, DEFAULT_SETTINGS["yolo_model"]["value"])
             setting = AppSetting.query.filter_by(key=key).first()
             if setting:
                 setting.value = value

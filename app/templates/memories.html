@@ -35,7 +35,7 @@
 </section>
 <section class="panel">
   <div class="panel-heading"><h2>Active Memories</h2><span>{{ memories|length }} shown</span></div>
-  <form id="bulkMemoryDeleteForm" class="d-flex align-items-center gap-2 mb-3" method="post" action="{{ url_for('main.web_delete_memories_bulk') }}" onsubmit="return confirm(`Permanently delete ${document.querySelectorAll('.memory-select:checked').length} selected memories?`)">
+  <form id="bulkMemoryDeleteForm" class="d-flex align-items-center gap-2 mb-3" method="post" action="{{ url_for('main.web_delete_memories_bulk') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button id="bulkMemoryDeleteButton" class="btn btn-sm btn-danger" disabled><i class="fa-solid fa-trash"></i> Delete Selected</button>
     <span id="bulkMemorySelectionCount" class="text-secondary">0 selected</span>
@@ -43,29 +43,4 @@
   {% include "partials/memory_table.html" %}
   {% include "partials/pagination.html" %}
 </section>
-<script>
-(() => {
-  const selectAll = document.getElementById("memorySelectAll");
-  const checkboxes = Array.from(document.querySelectorAll(".memory-select"));
-  const button = document.getElementById("bulkMemoryDeleteButton");
-  const count = document.getElementById("bulkMemorySelectionCount");
-  function refreshBulkSelection(){
-    const selected = checkboxes.filter(item => item.checked).length;
-    if(button) button.disabled = selected === 0;
-    if(count) count.textContent = `${selected} selected`;
-    if(selectAll){
-      selectAll.checked = selected > 0 && selected === checkboxes.length;
-      selectAll.indeterminate = selected > 0 && selected < checkboxes.length;
-    }
-  }
-  if(selectAll){
-    selectAll.addEventListener("change", () => {
-      checkboxes.forEach(item => { item.checked = selectAll.checked; });
-      refreshBulkSelection();
-    });
-  }
-  checkboxes.forEach(item => item.addEventListener("change", refreshBulkSelection));
-  refreshBulkSelection();
-})();
-</script>
 {% endblock %}
