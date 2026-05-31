@@ -11,3 +11,4 @@ uploads/
 !uploads/**/.gitkeep
 logs/*
 backups/
+*.pt

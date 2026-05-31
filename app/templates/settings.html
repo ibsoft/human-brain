@@ -67,8 +67,8 @@
       <label class="form-label mt-3">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics">
       <label class="form-label mt-3">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0">
       <label class="form-label mt-3">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select>
-      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="yolo26x.pt">
-      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="yolo26x.pt&#10;yolov8n.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
+      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="yolov8n.pt">
+      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="yolov8n.pt&#10;yolov8s.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
     </div>
   </div>
   <button class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>

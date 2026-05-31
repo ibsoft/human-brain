@@ -15,9 +15,12 @@ class VisionRuntime:
     error = None
 
 
+DEFAULT_YOLO_MODEL = "yolov8n.pt"
+
+
 class VisionService:
     def _load_model(self):
-        model_name = SettingsService.get("yolo_model", "yolo26x.pt")
+        model_name = SettingsService.get("yolo_model", DEFAULT_YOLO_MODEL)
         if VisionRuntime.model and VisionRuntime.model_name == model_name:
             return VisionRuntime.model
         try:
@@ -50,7 +53,7 @@ class VisionService:
             "camera_api": SettingsService.get("camera_api", "auto"),
             "snapshot_storage_enabled": SettingsService.get("snapshot_storage_enabled", False),
             "backend": SettingsService.get("vision_backend", "ultralytics"),
-            "active_model": SettingsService.get("yolo_model", "yolo26x.pt"),
+            "active_model": SettingsService.get("yolo_model", DEFAULT_YOLO_MODEL),
             "available_models": SettingsService.get("vision_models", []),
             "last_detection": VisionRuntime.last_detection,
             "error": VisionRuntime.error,
@@ -98,6 +101,8 @@ class VisionService:
                             cv2.putText(frame, f"{label} {conf:.2f}", (x1, max(y1 - 8, 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (72, 196, 255), 2)
                     except Exception as exc:
                         VisionRuntime.error = str(exc)
+                elif VisionRuntime.error:
+                    self._draw_frame_message(cv2, frame, VisionRuntime.error)
                 if labels:
                     VisionRuntime.last_detection = {"timestamp": datetime.utcnow().isoformat(), "objects": labels}
                 ok, encoded = cv2.imencode(".jpg", frame)
@@ -120,6 +125,14 @@ class VisionService:
             return b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
         except Exception:
             return b"--frame\r\nContent-Type: text/plain\r\n\r\nVision unavailable\r\n"
+
+    def _draw_frame_message(self, cv2, frame, message):
+        lines = ["Detector unavailable", str(message)[:86]]
+        y = 36
+        for line in lines:
+            cv2.putText(frame, line, (18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (0, 0, 0), 4)
+            cv2.putText(frame, line, (18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (72, 196, 255), 2)
+            y += 30
 
     def save_memory(self, payload):
         event = VisionEvent(

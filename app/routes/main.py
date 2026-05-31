@@ -607,7 +607,7 @@ def settings():
             "reranker_conditional_threshold": float_form("reranker_conditional_threshold", 0.08),
             "reranker_max_text_chars": int_form("reranker_max_text_chars", 1500),
             "reranker_device": request.form.get("reranker_device", "cpu").strip(),
-            "yolo_model": request.form.get("yolo_model", "yolo26x.pt").strip(),
+            "yolo_model": request.form.get("yolo_model", "yolov8n.pt").strip(),
             "vision_backend": request.form.get("vision_backend", "ultralytics").strip(),
             "camera_index": int_form("camera_index", 0),
             "camera_api": request.form.get("camera_api", "auto").strip(),
