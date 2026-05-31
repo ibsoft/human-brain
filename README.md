@@ -9,7 +9,7 @@
 - FAISS indexes are persisted per workspace in `faiss_indexes/`. Each index uses normalized embeddings with `IndexIDMap2(IndexFlatIP)`, so FAISS returns stable `vector_id` values that are mapped through the `memory_vectors` table.
 - `sentence-transformers` provides embeddings, with a deterministic fallback for constrained development environments.
 - Redis + Celery run consolidation, FAISS rebuild, duplicate detection, trust scoring, expiration, backup, snapshot cleanup, and reports.
-- Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `yolov8n.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
+- Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `models/yolov8n.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
 - Memory correlation creates workspace-scoped graph edges between related memories. See `docs/MEMORY_CORRELATION.md`.
 - Model operation guidance lives in `docs/models/SKILL.md`.
 - Agent API protocol and retrieval behavior are documented in `docs/AGENT_API_PROTOCOL.md`.
@@ -860,7 +860,23 @@ Settings can also enable scheduled duplicate consolidation. The worker finds dup
 
 ## YOLO Setup
 
-Vision settings are controlled in `/settings`. Add model names or local paths to the available model list, set the active model, enable camera access, and decide whether snapshots are allowed. Metadata is stored by default; frames are not persisted unless snapshot storage is enabled.
+Vision settings are controlled in `/settings`. Add model names or local paths to the available model list, set the active model, choose the inference device, enable camera access, and decide whether snapshots are allowed. Metadata is stored by default; frames are not persisted unless snapshot storage is enabled.
+
+Use `Auto-save vision memories` to store detected object groups automatically while `/vision` is streaming. The auto-save interval controls how often the same detected object set can be stored. Use `Allow snapshot storage` when the memory should include the annotated camera frame as an attached image asset. Operators can also use the `/vision` page button to save the current detection manually.
+
+Download the standard YOLOv8 models into `./models` when they are missing:
+
+```bash
+python scripts/download_yolo_models.py
+```
+
+Download only the default lightweight model:
+
+```bash
+python scripts/download_yolo_models.py yolov8n.pt
+```
+
+Then set the active model to the local path, for example `models/yolov8n.pt` or an absolute path such as `/app/models/yolov8n.pt` in container deployments.
 
 Check camera indexes:
 

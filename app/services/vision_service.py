@@ -1,10 +1,15 @@
 from datetime import datetime
+from pathlib import Path
 import time
 
+from flask import current_app
+
 from app.extensions import db
-from app.models import VisionEvent
-from app.services.memory_service import MemoryService
+from app.models import Agent, MemoryAsset, VisionEvent, Workspace
+from app.services.asset_vector_service import AssetVectorService
+from app.services.memory_service import MemoryService, asset_url
 from app.services.settings_service import SettingsService
+from app.utils.hash import sha256_text
 
 
 class VisionRuntime:
@@ -13,9 +18,12 @@ class VisionRuntime:
     model = None
     model_name = None
     error = None
+    last_snapshot = None
+    last_auto_saved_signature = None
+    last_auto_saved_at = None
 
 
-DEFAULT_YOLO_MODEL = "yolov8n.pt"
+DEFAULT_YOLO_MODEL = "models/yolov8n.pt"
 
 
 class VisionService:
@@ -52,10 +60,14 @@ class VisionService:
             "camera_index": SettingsService.get("camera_index", 0),
             "camera_api": SettingsService.get("camera_api", "auto"),
             "snapshot_storage_enabled": SettingsService.get("snapshot_storage_enabled", False),
+            "vision_auto_save": SettingsService.get("vision_auto_save", False),
+            "vision_auto_save_interval_seconds": SettingsService.get("vision_auto_save_interval_seconds", 30),
             "backend": SettingsService.get("vision_backend", "ultralytics"),
             "active_model": SettingsService.get("yolo_model", DEFAULT_YOLO_MODEL),
+            "device": SettingsService.get("yolo_device", "cpu"),
             "available_models": SettingsService.get("vision_models", []),
             "last_detection": VisionRuntime.last_detection,
+            "snapshot_available": bool(VisionRuntime.last_snapshot),
             "error": VisionRuntime.error,
         }
 
@@ -90,7 +102,7 @@ class VisionService:
                 labels = []
                 if model is not None:
                     try:
-                        results = model.predict(frame, verbose=False, conf=0.25)
+                        results = model.predict(frame, verbose=False, conf=0.25, device=SettingsService.get("yolo_device", "cpu"))
                         for box in results[0].boxes:
                             cls = int(box.cls[0])
                             conf = float(box.conf[0])
@@ -103,11 +115,14 @@ class VisionService:
                         VisionRuntime.error = str(exc)
                 elif VisionRuntime.error:
                     self._draw_frame_message(cv2, frame, VisionRuntime.error)
-                if labels:
-                    VisionRuntime.last_detection = {"timestamp": datetime.utcnow().isoformat(), "objects": labels}
                 ok, encoded = cv2.imencode(".jpg", frame)
                 if not ok:
                     continue
+                snapshot = encoded.tobytes()
+                if labels:
+                    VisionRuntime.last_snapshot = snapshot
+                    VisionRuntime.last_detection = {"timestamp": datetime.utcnow().isoformat(), "objects": labels}
+                    self._maybe_auto_save_current_detection(snapshot)
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
                 time.sleep(0.03)
         finally:
@@ -163,3 +178,126 @@ class VisionService:
         event.saved_as_memory_id = memory.id
         db.session.commit()
         return event, memory
+
+    def save_current_detection(self, workspace_id, agent_id, source="manual", actor_type="user", actor_id=None):
+        detection = VisionRuntime.last_detection
+        if not detection or not detection.get("objects"):
+            raise ValueError("No object detection is available yet.")
+        objects = detection["objects"]
+        labels = [item["label"] for item in objects if item.get("label")]
+        label_summary = ", ".join(dict.fromkeys(labels)) or "objects"
+        snapshot = VisionRuntime.last_snapshot if SettingsService.get("snapshot_storage_enabled", False) else None
+        event = VisionEvent(
+            workspace_id=workspace_id,
+            agent_id=agent_id,
+            label=label_summary[:120],
+            confidence=max(float(item.get("confidence", 0.0)) for item in objects),
+            meta={
+                "timestamp": detection.get("timestamp"),
+                "objects": objects,
+                "source": source,
+                "snapshot_attached": bool(snapshot),
+            },
+        )
+        db.session.add(event)
+        db.session.flush()
+        content_lines = [
+            f"Local vision detected {label_summary}.",
+            f"Timestamp: {detection.get('timestamp')}",
+            "Objects:",
+        ]
+        for item in objects:
+            content_lines.append(f"- {item.get('label')} confidence {float(item.get('confidence', 0.0)):.2f}")
+        if snapshot:
+            content_lines.append("Snapshot: attached image asset.")
+        else:
+            content_lines.append("Snapshot: not stored because snapshot storage is disabled.")
+        memory, _ = MemoryService().add_memory(
+            {
+                "workspace_id": workspace_id,
+                "agent_id": agent_id,
+                "title": f"Vision detected {label_summary}",
+                "content": "\n".join(content_lines),
+                "summary": f"Detected {label_summary} from the local camera.",
+                "memory_type": "vision",
+                "tags": sorted(set(["vision", "camera", source] + labels)),
+                "importance_score": 0.35,
+                "trust_score": min(max(event.confidence, 0.1), 1.0),
+                "source": f"vision_{source}",
+                "confirmed": source == "manual",
+                "storage_reason": f"Saved {source} from the Vision page.",
+            },
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
+        event.saved_as_memory_id = memory.id
+        if snapshot:
+            asset = self._attach_snapshot_asset(memory, snapshot, detection)
+            memory.content = f"{memory.content.rstrip()}\nSnapshot URL: {asset_url(asset, external=True)}"
+            memory.content_hash = sha256_text(memory.content.strip())
+        db.session.commit()
+        if snapshot:
+            try:
+                service = MemoryService()
+                service.faiss.upsert_memory(memory, service.embedding_service)
+            except Exception:
+                current_app.logger.exception("Could not refresh vision snapshot memory vector")
+        return event, memory
+
+    def _maybe_auto_save_current_detection(self, snapshot):
+        if not SettingsService.get("vision_auto_save", False):
+            return
+        detection = VisionRuntime.last_detection
+        if not detection or not detection.get("objects"):
+            return
+        signature = self._detection_signature(detection["objects"])
+        now = time.time()
+        interval = max(int(SettingsService.get("vision_auto_save_interval_seconds", 30) or 30), 5)
+        if signature == VisionRuntime.last_auto_saved_signature and VisionRuntime.last_auto_saved_at and now - VisionRuntime.last_auto_saved_at < interval:
+            return
+        workspace = Workspace.query.order_by(Workspace.id.asc()).first()
+        agent = Agent.query.filter_by(active=True).order_by(Agent.id.asc()).first()
+        if not workspace or not agent:
+            VisionRuntime.error = "Vision auto-save requires at least one workspace and active agent."
+            return
+        try:
+            VisionRuntime.last_snapshot = snapshot
+            self.save_current_detection(workspace.id, agent.id, source="auto", actor_type="system", actor_id=None)
+            VisionRuntime.last_auto_saved_signature = signature
+            VisionRuntime.last_auto_saved_at = now
+        except Exception as exc:
+            VisionRuntime.error = f"Vision auto-save failed: {exc}"
+            current_app.logger.exception("Vision auto-save failed")
+
+    def _detection_signature(self, objects):
+        parts = [f"{item.get('label')}:{round(float(item.get('confidence', 0.0)), 1)}" for item in objects]
+        return "|".join(sorted(parts))
+
+    def _attach_snapshot_asset(self, memory, snapshot, detection):
+        snapshot_dir = Path(current_app.config["SNAPSHOT_DIR"])
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"vision_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}.jpg"
+        path = snapshot_dir / filename
+        path.write_bytes(snapshot)
+        vector, vector_hash, metadata = AssetVectorService().image_vector(path)
+        metadata = {
+            **metadata,
+            "timestamp": detection.get("timestamp"),
+            "objects": detection.get("objects", []),
+            "source": "vision_snapshot",
+        }
+        asset = MemoryAsset(
+            memory_id=memory.id,
+            workspace_id=memory.workspace_id,
+            asset_type="image",
+            original_filename=filename,
+            stored_path=str(path),
+            content_type="image/jpeg",
+            vector_hash=vector_hash,
+            vector_dim=len(vector) if vector else None,
+            vector=vector,
+            asset_metadata=metadata,
+        )
+        db.session.add(asset)
+        db.session.flush()
+        return asset

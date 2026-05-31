@@ -25,6 +25,7 @@ Important settings:
 - `embedding_models`
 - `ollama_base_url`
 - `yolo_model`
+- `yolo_device`
 - `vision_models`
 - `vision_backend`
 - `camera_enabled`
@@ -112,7 +113,7 @@ Vision uses Ultralytics YOLO through the Vision module.
 Default initial model:
 
 ```text
-yolov8n.pt
+models/yolov8n.pt
 ```
 
 Other examples:
@@ -127,6 +128,15 @@ yolov8x.pt
 ```
 
 Add available models to `vision_models`, one per line, and set the active model in `yolo_model`.
+Set `yolo_device` to `cpu`, `cuda`, `cuda:0`, `cuda:1`, or `mps` depending on the host hardware and PyTorch build.
+
+Download missing standard YOLOv8 model files into `./models` with:
+
+```bash
+python scripts/download_yolo_models.py
+```
+
+Use `python scripts/download_yolo_models.py yolov8n.pt` to fetch only the default lightweight model.
 
 ## Camera and Privacy Rules
 
@@ -140,6 +150,8 @@ Default behavior:
 - Vision stores metadata only unless configured otherwise.
 
 If snapshot storage is enabled, uploaded/generated snapshots are local files and must be included in backup/restore planning.
+
+When `vision_auto_save` is enabled, the active `/vision` stream can automatically store detected object groups as vision memories. `vision_auto_save_interval_seconds` throttles repeated saves for the same detected object set. Operators can also save the current detection manually from the Vision page. Snapshot assets are attached only when `snapshot_storage_enabled` is enabled.
 
 ## Memory Impact
 
