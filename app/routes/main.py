@@ -93,7 +93,6 @@ def memories():
 
 
 @main_bp.get("/memory-assets/<asset_token>")
-@login_required
 def memory_asset(asset_token):
     asset = MemoryAsset.query.filter_by(public_token=asset_token).first()
     if not asset:

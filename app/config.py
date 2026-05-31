@@ -18,6 +18,7 @@ def database_url():
 
 class Config:
     APP_NAME = "Human-Brain"
+    HUMAN_BRAIN_URL = os.getenv("HUMAN_BRAIN_URL", "").rstrip("/")
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me")
     SQLALCHEMY_DATABASE_URI = database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False

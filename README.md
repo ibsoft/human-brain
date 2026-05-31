@@ -26,6 +26,7 @@ pip install -r requirements-core.txt
 pip install -r requirements-ml.txt
 cp .env.local.example .env
 export FLASK_ENV=development
+export HUMAN_BRAIN_URL=http://localhost:5000
 flask --app manage:app db init
 flask --app manage:app db migrate -m "initial schema"
 flask --app manage:app db upgrade
@@ -33,7 +34,7 @@ python manage.py seed-demo-data
 python manage.py
 ```
 
-Open `http://localhost:5000`.
+Open `$HUMAN_BRAIN_URL`.
 On first launch, `/login` redirects to `/setup` so you can create the first admin account in the browser.
 
 ## Demo And Sample Data
@@ -122,7 +123,7 @@ SNAPSHOT_DIR=/app/uploads/snapshots
 
 `docker-compose.yml` currently creates PostgreSQL with `POSTGRES_USER=human_brain`, `POSTGRES_PASSWORD=human_brain`, and `POSTGRES_DB=human_brain`. If you change the database password or username in `.env`, change the matching `postgres.environment` values in `docker-compose.yml` before the first `docker compose up`. PostgreSQL only uses those `POSTGRES_*` values when the `postgres_data` volume is first initialized.
 
-Use `SESSION_COOKIE_SECURE=true` only when the app is served through HTTPS. For plain local `http://localhost:5000`, keep it `false` or browser login cookies may not work.
+Use `SESSION_COOKIE_SECURE=true` only when the app is served through HTTPS. For plain local `$HUMAN_BRAIN_URL`, keep it `false` or browser login cookies may not work.
 
 3. Start PostgreSQL, Redis, and the app:
 
@@ -147,7 +148,7 @@ Copy the printed demo API key immediately.
 6. Open the app:
 
 ```text
-http://localhost:5000
+$HUMAN_BRAIN_URL
 ```
 
 7. Check service logs:
@@ -302,7 +303,7 @@ gunicorn -c gunicorn.conf.py manage:app
 Open:
 
 ```text
-http://localhost:5000
+$HUMAN_BRAIN_URL
 ```
 
 Stop Gunicorn with `Ctrl+C` after the test.
@@ -355,7 +356,7 @@ psql "postgresql://human_brain:change-this-password@localhost:5432/human_brain" 
 ```bash
 psql "postgresql://human_brain:change-this-password@localhost:5432/human_brain" -c "\dt"
 redis-cli ping
-curl http://localhost:5000/login
+curl "$HUMAN_BRAIN_URL/login"
 ```
 
 Expected results:
@@ -424,12 +425,19 @@ API keys are hashed in the database. Raw keys are only shown at creation.
 
 After `python manage.py seed-demo-data`, copy the printed demo API key.
 
+Set the app URL once before running the examples:
+
+```bash
+export HUMAN_BRAIN_URL=http://localhost:5000
+export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
+```
+
 Store memory:
 
 ```bash
-curl -X POST http://localhost:5000/api/v1/memory/add \
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/add" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: hb_REPLACE_ME" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d '{
     "agent_id": 1,
     "workspace_id": 1,
@@ -446,25 +454,25 @@ curl -X POST http://localhost:5000/api/v1/memory/add \
 Create and consolidate a session:
 
 ```bash
-SESSION_ID=$(curl -s -X POST http://localhost:5000/api/v1/session/start \
-  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+SESSION_ID=$(curl -s -X POST "$HUMAN_BRAIN_URL/api/v1/session/start" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d '{"agent_id":1,"workspace_id":1,"title":"Planning"}' | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 
-curl -X POST http://localhost:5000/api/v1/session/add-message \
-  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/add-message" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"session_id\":$SESSION_ID,\"role\":\"user\",\"content\":\"Decision: use Redis as the Celery broker. Task: rebuild FAISS nightly.\"}"
 
-curl -X POST http://localhost:5000/api/v1/session/consolidate \
-  -H "Content-Type: application/json" -H "X-API-Key: hb_REPLACE_ME" \
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/consolidate" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"session_id\":$SESSION_ID}"
 ```
 
 Retrieve context for an AI agent:
 
 ```bash
-curl -X POST http://localhost:5000/api/v1/context/build \
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/context/build" \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: hb_REPLACE_ME" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d '{
     "agent_id": 1,
     "workspace_id": 1,
@@ -538,8 +546,8 @@ The search response includes timing:
 For fast agent retrieval, use compact GET search:
 
 ```bash
-curl "http://localhost:5000/api/v1/search?workspace_id=1&query=where%20can%20I%20find%20unixfor%20online&mode=agent&compact=true" \
-  -H "X-API-Key: hb_REPLACE_ME"
+curl "$HUMAN_BRAIN_URL/api/v1/search?workspace_id=1&query=where%20can%20I%20find%20unixfor%20online&mode=agent&compact=true" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 Compact mode returns only the fields an agent needs:
@@ -564,8 +572,8 @@ Search modes:
 Warm caches after deployment or rebuild:
 
 ```bash
-curl -X POST http://localhost:5000/api/v1/vector/warmup \
-  -H "X-API-Key: hb_REPLACE_ME"
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/vector/warmup" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 Optional startup warmup:
@@ -578,8 +586,8 @@ VECTOR_AUTO_REPAIR_ON_WARMUP=true
 Vector diagnostics:
 
 ```bash
-curl http://localhost:5000/api/v1/vector/health \
-  -H "X-API-Key: hb_REPLACE_ME"
+curl "$HUMAN_BRAIN_URL/api/v1/vector/health" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 The endpoint reports loaded indexes, embedding model, vector dimension, FAISS index type, total vectors, orphan database vectors, missing FAISS vectors, memories without vectors, and last rebuild time.
@@ -587,8 +595,8 @@ The endpoint reports loaded indexes, embedding model, vector dimension, FAISS in
 Performance diagnostics:
 
 ```bash
-curl http://localhost:5000/api/v1/performance \
-  -H "X-API-Key: hb_REPLACE_ME"
+curl "$HUMAN_BRAIN_URL/api/v1/performance" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
 Run local benchmarks:
