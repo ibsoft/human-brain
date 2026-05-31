@@ -11,6 +11,7 @@ from app.services.admin_service import AdminService
 from app.services.backup_service import BackupService
 from app.services.context_service import ContextService
 from app.services.document_service import DocumentIngestionService
+from app.services.agent_log_service import AgentLogService
 from app.services.memory_service import MemoryService
 from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService
@@ -31,6 +32,12 @@ def dashboard():
         "sessions": Session.query.count(),
         "jobs": ConsolidationJob.query.count(),
         "sensitive": Memory.query.filter(Memory.sensitivity_level.in_(["high", "secret"]), Memory.deleted_at.is_(None)).count(),
+    }
+    job_stats = {
+        "queued": ConsolidationJob.query.filter_by(status="queued").count(),
+        "running": ConsolidationJob.query.filter_by(status="running").count(),
+        "completed": ConsolidationJob.query.filter_by(status="completed").count(),
+        "failed": ConsolidationJob.query.filter_by(status="failed").count(),
     }
     recent = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(8).all()
     top_tags = {}
@@ -81,7 +88,7 @@ def dashboard():
         "trust": {"labels": list(trust_buckets.keys()), "values": list(trust_buckets.values())},
         "sources": {"labels": list(source_counts.keys()), "values": list(source_counts.values())},
     }
-    return render_template("dashboard.html", stats=stats, recent=recent, top_tags=top_tags, workspace_id=workspace_id, dashboard_charts=dashboard_charts)
+    return render_template("dashboard.html", stats=stats, job_stats=job_stats, recent=recent, top_tags=top_tags, workspace_id=workspace_id, dashboard_charts=dashboard_charts)
 
 
 @main_bp.route("/memories")
@@ -570,6 +577,18 @@ def settings():
                 "time": request.form.get("backup_time", "02:00"),
                 "keep_last": int_form("backup_keep_last", 7),
             },
+            "duplicate_consolidation": {
+                "enabled": request.form.get("duplicate_consolidation_enabled") == "on",
+                "frequency": request.form.get("duplicate_frequency", "daily"),
+                "time": request.form.get("duplicate_time", "03:00"),
+                "min_group_size": int_form("duplicate_min_group_size", 2),
+                "archive_duplicates": request.form.get("duplicate_archive_duplicates") == "on",
+            },
+            "agent_api_logging_enabled": request.form.get("agent_api_logging_enabled") == "on",
+            "agent_api_log_level": request.form.get("agent_api_log_level", "info").strip(),
+            "agent_api_log_max_mb": int_form("agent_api_log_max_mb", 10),
+            "agent_api_log_keep_files": int_form("agent_api_log_keep_files", 5),
+            "agent_auto_sessions": request.form.get("agent_auto_sessions") == "on",
             "reranker_enabled": request.form.get("reranker_enabled") == "on",
             "reranker_provider": request.form.get("reranker_provider", "none").strip(),
             "reranker_default_mode": request.form.get("reranker_default_mode", "conditional").strip(),
@@ -676,6 +695,17 @@ def backups():
     return render_template("backups.html", backups=service.backup_items(), backup_count=len(service.list_backups()))
 
 
+@main_bp.get("/backups/<path:filename>/download")
+@login_required
+@minimum_role("operator")
+def download_backup(filename):
+    service = BackupService()
+    path = service.backup_dir() / filename
+    if not path.exists() or not path.is_file() or path.parent != service.backup_dir():
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=path.name)
+
+
 @main_bp.post("/backups/create")
 @login_required
 @minimum_role("operator")
@@ -705,6 +735,16 @@ def delete_backup(filename):
     BackupService().delete_backup(filename)
     flash("Backup deleted.", "success")
     return redirect(url_for("main.backups"))
+
+
+@main_bp.get("/agent-logs")
+@login_required
+@role_required("admin")
+def agent_logs():
+    page = request.args.get("page", 1, type=int)
+    query = request.args.get("q", "")
+    logs = AgentLogService().items(query=query, page=page, per_page=50)
+    return render_template("agent_logs.html", logs=logs, query=query)
 
 
 @main_bp.get("/agents/<int:agent_id>/export")
@@ -837,6 +877,21 @@ def web_context():
 def duplicates():
     groups = AdminService.duplicate_groups()
     return render_template("duplicates.html", groups=groups)
+
+
+@main_bp.post("/duplicates/consolidate")
+@login_required
+@role_required("admin")
+def consolidate_duplicates():
+    from app.services.duplicate_service import DuplicateConsolidationService
+
+    settings = SettingsService.get("duplicate_consolidation", {})
+    result = DuplicateConsolidationService().run_for_all_workspaces(
+        archive_duplicates=bool(settings.get("archive_duplicates", True)),
+        min_group_size=int(settings.get("min_group_size", 2)),
+    )
+    flash(f"Duplicate consolidation completed: {result}", "success")
+    return redirect(url_for("main.duplicates"))
 
 
 @main_bp.post("/system-health/rebuild-index")

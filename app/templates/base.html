@@ -10,7 +10,7 @@
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/polish.css') }}" rel="stylesheet">
 </head>
-<body>
+<body class="sidebar-compact">
 <div class="app-shell">
   <aside class="sidebar">
     <div class="brand-row">
@@ -23,7 +23,7 @@
         ('Core','fa-gauge',[('main.dashboard','fa-gauge','Dashboard'),('main.memories','fa-layer-group','Memories'),('main.search_page','fa-magnifying-glass','Semantic Search'),('main.context_builder','fa-code-branch','Context Builder')]),
         ('Operations','fa-gears',[('main.sessions','fa-clock-rotate-left','Sessions'),('main.agents','fa-robot','Agents'),('main.workspaces','fa-building','Workspaces'),('vision.vision_page','fa-video','Vision')]),
         ('Review','fa-shield-halved',[('main.timeline','fa-timeline','Timeline'),('main.graph','fa-diagram-project','Memory Graph'),('main.duplicates','fa-clone','Duplicate Detector'),('main.forget_center','fa-eraser','Forget Center'),('main.sensitive_review','fa-shield-halved','Sensitive Review'),('main.audit_logs','fa-clipboard-list','Audit Logs')]),
-        ('Admin','fa-screwdriver-wrench',[('main.api_keys','fa-key','API Keys'),('main.backups','fa-database','Backups'),('main.settings','fa-sliders','Settings'),('main.system_health','fa-heart-pulse','System Health')])
+        ('Admin','fa-screwdriver-wrench',[('main.api_keys','fa-key','API Keys'),('main.backups','fa-database','Backups'),('main.agent_logs','fa-file-lines','Agent Logs'),('main.settings','fa-sliders','Settings'),('main.system_health','fa-heart-pulse','System Health')])
       ] %}
       {% for group, group_icon, links in groups %}
       <div class="accordion-item">
@@ -73,7 +73,7 @@
       <div class="footer-links">
         <span><i class="fa-solid fa-shield-halved"></i> private by default</span>
         <span><i class="fa-solid fa-database"></i> auditable memory</span>
-        <span><i class="fa-solid fa-leaf"></i> local controls</span>
+        <span><i class="fa-solid fa-code-branch"></i> {{ git_version.branch }}@{{ git_version.commit }}{% if git_version.dirty %} dirty{% endif %}</span>
       </div>
     </footer>
   </main>

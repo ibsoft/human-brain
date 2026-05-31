@@ -1,7 +1,7 @@
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import Memory, MemoryVector, Session
+from app.models import ConsolidationJob, Memory, MemoryVector, Session
 from app.security.auth import require_api_key, require_workspace_access
 from app.services.context_service import ContextService, confirm_memory
 from app.services.document_service import DocumentIngestionService
@@ -396,3 +396,43 @@ def session_get(session_id):
         abort(404, description="Session not found")
     require_workspace_access(g.agent.id, session.workspace_id)
     return jsonify({"session": SessionService().serialize_session(session)})
+
+
+@api_bp.get("/jobs")
+@require_api_key
+def jobs_list():
+    workspace_id = request.args.get("workspace_id", type=int)
+    require_workspace_access(g.agent.id, workspace_id)
+    jobs = (
+        ConsolidationJob.query.filter_by(workspace_id=workspace_id, agent_id=g.agent.id)
+        .order_by(ConsolidationJob.created_at.desc())
+        .limit(request.args.get("limit", 50, type=int))
+        .all()
+    )
+    return jsonify({"jobs": [_serialize_job(job) for job in jobs]})
+
+
+@api_bp.get("/jobs/<int:job_id>")
+@require_api_key
+def job_get(job_id):
+    job = db.session.get(ConsolidationJob, job_id)
+    if not job:
+        abort(404, description="Job not found")
+    require_workspace_access(g.agent.id, job.workspace_id)
+    if job.agent_id != g.agent.id:
+        abort(403, description="API key cannot read another agent's job")
+    return jsonify({"job": _serialize_job(job)})
+
+
+def _serialize_job(job):
+    return {
+        "id": job.id,
+        "session_id": job.session_id,
+        "workspace_id": job.workspace_id,
+        "agent_id": job.agent_id,
+        "status": job.status,
+        "result": job.result,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+    }

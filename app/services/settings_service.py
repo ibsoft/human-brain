@@ -61,6 +61,30 @@ DEFAULT_SETTINGS = {
         "value": {"enabled": False, "frequency": "daily", "time": "02:00", "keep_last": 7},
         "description": "Local scheduled backup policy for celery beat or external scheduler.",
     },
+    "duplicate_consolidation": {
+        "value": {"enabled": False, "frequency": "daily", "time": "03:00", "min_group_size": 2, "archive_duplicates": True},
+        "description": "Scheduled duplicate memory consolidation policy.",
+    },
+    "agent_api_logging_enabled": {
+        "value": True,
+        "description": "Write agent API requests and responses to rotated JSONL logs.",
+    },
+    "agent_api_log_level": {
+        "value": "info",
+        "description": "Agent API JSONL log level: debug, info, or warning.",
+    },
+    "agent_api_log_max_mb": {
+        "value": 10,
+        "description": "Rotate agent API JSONL logs after this many megabytes.",
+    },
+    "agent_api_log_keep_files": {
+        "value": 5,
+        "description": "Number of rotated agent API JSONL log files to keep.",
+    },
+    "agent_auto_sessions": {
+        "value": True,
+        "description": "Encourage agents to use explicit API sessions and session_id fields.",
+    },
     "yolo_model": {
         "value": "yolo26x.pt",
         "description": "Active Ultralytics YOLO model used for local object detection.",

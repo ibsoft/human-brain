@@ -113,7 +113,8 @@ function toggleSidebarMode(){
   document.body.classList.toggle("sidebar-compact");
   localStorage.setItem("hb-sidebar-compact", document.body.classList.contains("sidebar-compact") ? "1" : "0");
 }
-if(localStorage.getItem("hb-sidebar-compact")==="1") document.body.classList.add("sidebar-compact");
+if(localStorage.getItem("hb-sidebar-compact")==="0") document.body.classList.remove("sidebar-compact");
+else document.body.classList.add("sidebar-compact");
 function toggleMobileSidebar(force){
   const open = typeof force === "boolean" ? force : !document.body.classList.contains("sidebar-open");
   document.body.classList.toggle("sidebar-open", open);
@@ -244,7 +245,7 @@ function initTableDetailRows(){
   document.querySelectorAll("table tbody tr:not(.memory-row)").forEach(row=>{
     if(row.children.length < 2) return;
     row.classList.add("table-detail-row");
-    row.addEventListener("click",event=>{
+    const openDetail = event=>{
       if(event.target.closest("a,button,form,input,select,textarea,.row-actions")) return;
       const table = row.closest("table");
       const headers = Array.from(table.querySelectorAll("thead th")).map(th=>th.textContent.trim());
@@ -255,6 +256,17 @@ function initTableDetailRows(){
       const title = document.getElementById("tableDetailTitle");
       if(!body||!actions||!title) return;
       title.textContent = row.dataset.detailTitle || cells[1]?.textContent.trim() || cells[0]?.textContent.trim() || "Details";
+      const json = row.querySelector(".row-detail-json")?.textContent;
+      if(json){
+        try{
+          body.innerHTML = `<pre class="output">${escapeHtml(JSON.stringify(JSON.parse(json), null, 2))}</pre>`;
+        }catch(error){
+          body.innerHTML = `<pre class="output">${escapeHtml(json)}</pre>`;
+        }
+        actions.innerHTML = '<button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>';
+        if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(document.getElementById("tableDetailModal")).show();
+        return;
+      }
       const implicitActionCell = cells[cells.length - 1]?.querySelector("a,button,form") ? cells[cells.length - 1] : null;
       body.innerHTML = cells.map((cell,index)=>{
         if(cell.classList.contains("row-actions") || cell === implicitActionCell) return "";
@@ -266,7 +278,8 @@ function initTableDetailRows(){
       actions.innerHTML = actionCell ? actionCell.innerHTML : '<button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>';
       actions.querySelectorAll("form").forEach(form=>form.classList.add("d-inline"));
       if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(document.getElementById("tableDetailModal")).show();
-    });
+    };
+    row.addEventListener("dblclick", openDetail);
   });
 }
 initTableDetailRows();

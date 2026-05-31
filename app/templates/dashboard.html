@@ -17,6 +17,16 @@
   <div class="metric-card"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span><strong>{{ value }}</strong></div>
   {% endfor %}
 </section>
+<section class="panel mt-4">
+  <div class="panel-heading"><h2>Background Jobs</h2><a href="{{ url_for('main.sessions') }}">Sessions</a></div>
+  <p class="text-secondary">Jobs are queued worker tasks for session consolidation, duplicate consolidation, index rebuilds, backup maintenance, retention, and reports.</p>
+  <div class="score-strip">
+    <span>queued {{ job_stats.queued }}</span>
+    <span>running {{ job_stats.running }}</span>
+    <span>completed {{ job_stats.completed }}</span>
+    <span>failed {{ job_stats.failed }}</span>
+  </div>
+</section>
 <section class="mt-4">
   <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Memory Writes</h2><span>last 7 days</span></div><div class="chart-box chart-box-wide"><canvas id="activityChart"></canvas></div></div>
 </section>

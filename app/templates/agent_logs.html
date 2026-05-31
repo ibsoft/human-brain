@@ -1,0 +1,42 @@
+{% extends "base.html" %}{% block page_title %}Agent Logs{% endblock %}{% block content %}
+<section class="hero-panel mb-4">
+  <div><div class="eyebrow">Agent Observability</div><h2>API request and response JSONL logs</h2><p>Inspect what agents send to Human-Brain and what the API returns. Logging and rotation are controlled in Settings.</p></div>
+  <div class="hero-actions"><a class="btn btn-outline-info" href="{{ url_for('main.settings') }}"><i class="fa-solid fa-sliders"></i> Settings</a></div>
+</section>
+<section class="panel mb-4">
+  <form class="row g-2" method="get">
+    <div class="col-md-10"><input class="form-control" name="q" value="{{ query }}" placeholder="Search logs"></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100"><i class="fa-solid fa-magnifying-glass"></i> Search</button></div>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-heading"><h2>Agent API Logs</h2><span>{{ logs.total }} entries</span></div>
+  <div class="table-responsive">
+    <table class="table table-dark table-hover align-middle">
+      <thead><tr><th>Time</th><th>Level</th><th>Agent</th><th>Method</th><th>Path</th><th>Status</th><th>File</th></tr></thead>
+      <tbody>
+      {% for item in logs.items %}
+      <tr data-detail-title="{{ item.method }} {{ item.path }}">
+        <td>{{ item.ts }}</td>
+        <td><span class="badge text-bg-{{ 'warning' if item.level == 'warning' else 'info' }}">{{ item.level }}</span></td>
+        <td>{{ item.agent_id or "-" }}</td>
+        <td>{{ item.method }}</td>
+        <td>{{ item.path }}</td>
+        <td>{{ item.status }}</td>
+        <td><code>{{ item._file }}:{{ item._line }}</code><script type="application/json" class="row-detail-json">{{ item|tojson }}</script></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-secondary">No agent API logs found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="d-flex justify-content-between mt-3">
+    {% set prev_page = logs.page - 1 %}
+    {% set next_page = logs.page + 1 %}
+    <a class="btn btn-outline-info {% if logs.page <= 1 %}disabled{% endif %}" href="{{ url_for('main.agent_logs', page=prev_page, q=query) }}">Previous</a>
+    <span class="text-secondary">Page {{ logs.page }}</span>
+    <a class="btn btn-outline-info {% if logs.page * logs.per_page >= logs.total %}disabled{% endif %}" href="{{ url_for('main.agent_logs', page=next_page, q=query) }}">Next</a>
+  </div>
+</section>
+{% endblock %}
