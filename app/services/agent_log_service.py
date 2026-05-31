@@ -29,7 +29,7 @@ class AgentLogService:
         record = {"ts": datetime.utcnow().isoformat(), "level": level, **record}
         path = self._active_path()
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+            handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         self._rotate_if_needed(path)
 
     def items(self, query="", page=1, per_page=50):
@@ -38,20 +38,37 @@ class AgentLogService:
         for path in sorted(self.log_dir.glob("agent_api*.jsonl"), reverse=True):
             with path.open("r", encoding="utf-8", errors="replace") as handle:
                 for line_no, line in enumerate(handle, 1):
-                    if query and query not in line.lower():
-                        continue
                     try:
                         payload = json.loads(line)
                     except ValueError:
                         payload = {"ts": "", "level": "warning", "error": "Invalid JSONL", "raw": line}
-                    payload["_file"] = path.name
-                    payload["_line"] = line_no
-                    payload["_raw"] = line
-                    rows.append(payload)
+                    detail = self._decode_for_display(payload)
+                    searchable = f"{line}\n{json.dumps(detail, ensure_ascii=False, default=str)}".lower()
+                    if query and query not in searchable:
+                        continue
+                    row = dict(detail)
+                    row["_file"] = path.name
+                    row["_line"] = line_no
+                    row["_detail"] = detail
+                    rows.append(row)
         rows.sort(key=lambda row: row.get("ts") or "", reverse=True)
         total = len(rows)
         start = max(page - 1, 0) * per_page
         return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
+
+    def _decode_for_display(self, value):
+        if isinstance(value, dict):
+            return {key: self._decode_for_display(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._decode_for_display(item) for item in value]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped[:1] in ("{", "[") and stripped[-1:] in ("}", "]"):
+                try:
+                    return self._decode_for_display(json.loads(stripped))
+                except ValueError:
+                    return value
+        return value
 
     def _active_path(self):
         return self.log_dir / "agent_api.jsonl"

@@ -3,7 +3,8 @@ from io import BytesIO
 from pathlib import Path
 
 from app.extensions import db
-from app.models import AuditLog, Memory, MemoryAsset, User, Workspace
+from app.models import AuditLog, Memory, MemoryAsset, SessionMessage, User, Workspace
+from app.services.agent_log_service import AgentLogService
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
 from app.services.reranker_service import RerankerService
@@ -263,11 +264,62 @@ def test_agent_can_list_session_jobs(client, app, api_headers):
     assert any(job["id"] == consolidate.get_json()["job_id"] for job in jobs.get_json()["jobs"])
 
 
+def test_agent_session_id_auto_captures_api_exchange(client, app, api_headers):
+    start = client.post(
+        "/api/v1/session/start",
+        json={"workspace_id": app.config["TEST_WORKSPACE_ID"], "title": "Auto capture"},
+        headers=api_headers,
+    )
+    session_id = start.get_json()["session_id"]
+    search = client.post(
+        "/api/v1/memory/search",
+        json={"workspace_id": app.config["TEST_WORKSPACE_ID"], "session_id": session_id, "query": "Πες μου για την εικόνα"},
+        headers=api_headers,
+    )
+    assert search.status_code == 200
+    with app.app_context():
+        messages = SessionMessage.query.filter_by(session_id=session_id).order_by(SessionMessage.id.asc()).all()
+        assert [message.role for message in messages] == ["user", "assistant"]
+        assert "Πες μου για την εικόνα" in messages[0].content
+        assert "results" in messages[1].content
+
+
 def test_agent_logs_page_renders_empty_state(client):
     client.post("/login", data={"email": "admin@example.com", "password": "password"})
     res = client.get("/agent-logs")
     assert res.status_code == 200
     assert b"Agent API Logs" in res.data
+
+
+def test_agent_logs_keep_unicode_readable(app, tmp_path):
+    with app.app_context():
+        service = AgentLogService()
+        service.log_dir = tmp_path
+        service.write(
+            {
+                "method": "POST",
+                "path": "/api/v1/memory/search",
+                "body": {"query": "Πες μου για την εικόνα"},
+                "response": {"results": [{"content": "Καλημέρα"}]},
+            }
+        )
+        assert "Πες μου" in (tmp_path / "agent_api.jsonl").read_text(encoding="utf-8")
+
+        old_row = {
+            "ts": "2026-05-31T16:01:42",
+            "level": "info",
+            "method": "POST",
+            "path": "/api/v1/memory/search",
+            "body": json.dumps({"query": "Πες μου για την εικόνα"}),
+            "response": json.dumps({"results": [{"content": "Καλημέρα"}]}),
+        }
+        (tmp_path / "agent_api_escaped.jsonl").write_text(
+            json.dumps(old_row, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+        )
+        logs = service.items(query="Πες", page=1, per_page=10)
+        assert logs["total"] == 2
+        assert logs["items"][0]["_detail"]["body"]["query"] == "Πες μου για την εικόνα"
 
 
 def test_viewer_cannot_create_agent(client, app):

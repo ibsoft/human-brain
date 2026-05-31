@@ -523,10 +523,16 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/add-message" \
   -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"session_id\":$SESSION_ID,\"role\":\"user\",\"content\":\"Decision: use Redis as the Celery broker. Task: rebuild FAISS nightly.\"}"
 
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/search" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"workspace_id\":$HUMAN_BRAIN_WORKSPACE_ID,\"session_id\":$SESSION_ID,\"query\":\"deployment status\",\"top_k\":8}"
+
 curl -X POST "$HUMAN_BRAIN_URL/api/v1/session/consolidate" \
   -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -d "{\"session_id\":$SESSION_ID}"
 ```
+
+Starting a session creates the session row. The session fills when the agent calls `/api/v1/session/add-message` or includes the numeric `session_id` on related agent API calls while session auto-capture is enabled in Settings.
 
 Inspect background jobs created by session consolidation:
 
@@ -545,7 +551,7 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/context/build" \
     "agent_id": 1,
     "workspace_id": 1,
     "prompt": "How should I deploy the memory system?",
-    "session_id": "chat-123",
+    "session_id": 1,
     "top_k": 8,
     "memory_types": ["technical_notes", "decisions", "tasks"],
     "max_tokens": 1200,

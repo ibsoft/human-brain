@@ -20,6 +20,7 @@ Use workspace isolation. Always operate in the assigned workspace_id. Never mix 
 Use the Memory Firewall. Never inject high or secret sensitivity memories into normal answers unless policy explicitly permits it. Never expose raw API keys, passwords, tokens, or secrets.
 
 Use sessions for multi-turn work. Start a session for a meaningful task, add important user/assistant messages, end the session when complete, and consolidate it so durable memories are created.
+After starting a session, include the numeric `session_id` on all related search, context, memory add, and upload requests. Starting a session without using its ID leaves the session empty.
 
 When the user asks to see an uploaded file or image again, search Human-Brain and use `assets[].url` from the memory result. Do not answer with only the memory text if an asset URL is available.
 
@@ -231,6 +232,14 @@ SESSION_ID=$(curl -s -X POST "$HUMAN_BRAIN_URL/api/v1/session/start" \
   -d '{"workspace_id":1,"title":"Deployment planning"}' | python -c 'import sys,json; print(json.load(sys.stdin)["session_id"])')
 ```
 
+Keep using the returned numeric `SESSION_ID` on related API calls. Human-Brain can auto-capture session-aware request/response pairs only when `session_id` is present:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/search" \
+  -H "Content-Type: application/json" -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d "{\"workspace_id\":$HUMAN_BRAIN_WORKSPACE_ID,\"session_id\":$SESSION_ID,\"query\":\"deployment status\",\"top_k\":8}"
+```
+
 Add a message:
 
 ```bash
@@ -343,6 +352,7 @@ POST /api/v1/memory/upload
 curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/upload" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
   -F "workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -F "session_id=$SESSION_ID" \
   -F "title=Architecture notes" \
   -F "memory_type=technical_notes" \
   -F "tags=architecture,upload" \
