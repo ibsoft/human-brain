@@ -92,11 +92,11 @@ DEFAULT_SETTINGS = {
         "description": "Encourage agents to use explicit API sessions and session_id fields.",
     },
     "yolo_model": {
-        "value": "yolo26x.pt",
+        "value": "yolov8n.pt",
         "description": "Active Ultralytics YOLO model used for local object detection.",
     },
     "vision_models": {
-        "value": ["yolo26x.pt", "yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"],
+        "value": ["yolov8n.pt", "yolov8s.pt", "yolov8m.pt", "yolov8l.pt", "yolov8x.pt"],
         "description": "Allowed local or downloadable vision model names/paths.",
     },
     "vision_backend": {

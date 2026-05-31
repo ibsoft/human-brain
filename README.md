@@ -9,7 +9,7 @@
 - FAISS indexes are persisted per workspace in `faiss_indexes/`. Each index uses normalized embeddings with `IndexIDMap2(IndexFlatIP)`, so FAISS returns stable `vector_id` values that are mapped through the `memory_vectors` table.
 - `sentence-transformers` provides embeddings, with a deterministic fallback for constrained development environments.
 - Redis + Celery run consolidation, FAISS rebuild, duplicate detection, trust scoring, expiration, backup, snapshot cleanup, and reports.
-- Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `yolo26x.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
+- Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `yolov8n.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
 - Memory correlation creates workspace-scoped graph edges between related memories. See `docs/MEMORY_CORRELATION.md`.
 - Model operation guidance lives in `docs/models/SKILL.md`.
 - Agent API protocol and retrieval behavior are documented in `docs/AGENT_API_PROTOCOL.md`.

@@ -112,7 +112,7 @@ Vision uses Ultralytics YOLO through the Vision module.
 Default initial model:
 
 ```text
-yolo26x.pt
+yolov8n.pt
 ```
 
 Other examples:
