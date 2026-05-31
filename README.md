@@ -892,4 +892,5 @@ flask --app manage:app camera-check --max-index 5
 - Bad or outdated correlation edges: run `flask --app manage:app rebuild-correlations`.
 - Celery jobs stuck: confirm Redis is reachable and workers are running.
 - Vision disabled: enable camera use on Settings.
+- `yolo26x.pt` fails with a `C3k2` error: the installed Ultralytics runtime does not support that checkpoint. Use `models/yolov8n.pt` or upgrade the ML dependencies before selecting it.
 - PostgreSQL migrations: run `flask --app manage:app db migrate` and `flask --app manage:app db upgrade`.

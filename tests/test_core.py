@@ -411,6 +411,31 @@ def test_restore_zip_backup_and_delete_memory(client, app, api_headers):
         assert db.session.get(Memory, memory_id) is None
 
 
+def test_bulk_delete_memories_from_current_page(client, app, api_headers):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    payload = {
+        "agent_id": app.config["TEST_AGENT_ID"],
+        "workspace_id": app.config["TEST_WORKSPACE_ID"],
+        "memory_type": "long-term",
+    }
+    first = client.post("/api/v1/memory/add", json={**payload, "content": "Bulk delete memory one."}, headers=api_headers).get_json()["memory"]["id"]
+    second = client.post("/api/v1/memory/add", json={**payload, "content": "Bulk delete memory two."}, headers=api_headers).get_json()["memory"]["id"]
+    third = client.post("/api/v1/memory/add", json={**payload, "content": "Keep this memory."}, headers=api_headers).get_json()["memory"]["id"]
+    page = client.get("/memories")
+    assert page.status_code == 200
+    assert b'id="bulkMemoryDeleteForm"' in page.data
+    deleted = client.post(
+        "/memories/delete-hard-bulk",
+        data={"memory_ids": [str(first), str(second)]},
+        follow_redirects=True,
+    )
+    assert deleted.status_code == 200
+    with app.app_context():
+        assert db.session.get(Memory, first) is None
+        assert db.session.get(Memory, second) is None
+        assert db.session.get(Memory, third) is not None
+
+
 def test_memory_add_search_delete(client, app, api_headers):
     payload = {
         "agent_id": app.config["TEST_AGENT_ID"],
@@ -690,6 +715,13 @@ def test_vision_status_includes_yolo_device(client, app):
         SettingsService.update({"yolo_device": "cuda:0"})
         status = VisionService().status()
         assert status["device"] == "cuda:0"
+
+
+def test_vision_model_error_message_explains_yolo26_runtime_mismatch(app):
+    with app.app_context():
+        message = VisionService()._model_error_message("models/yolo26x.pt", AttributeError("Can't get attribute 'C3k2'"))
+        assert "requires a newer Ultralytics" in message
+        assert "models/yolov8n.pt" in message
 
 
 def test_web_memory_and_session_workflows(client, app):

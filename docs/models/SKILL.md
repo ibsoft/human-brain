@@ -138,6 +138,8 @@ python scripts/download_yolo_models.py
 
 Use `python scripts/download_yolo_models.py yolov8n.pt` to fetch only the default lightweight model.
 
+If `yolo26x.pt` fails with a missing `C3k2` attribute, the installed Ultralytics runtime is too old for that checkpoint. Use `models/yolov8n.pt` or upgrade the ML dependency set before selecting the YOLO26 model.
+
 ## Camera and Privacy Rules
 
 Camera use must be explicitly enabled.

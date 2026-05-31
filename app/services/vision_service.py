@@ -39,7 +39,7 @@ class VisionService:
             VisionRuntime.error = None
             return VisionRuntime.model
         except Exception as exc:
-            VisionRuntime.error = f"Vision model unavailable: {exc}"
+            VisionRuntime.error = f"Vision model unavailable: {self._model_error_message(model_name, exc)}"
             return None
 
     def start(self):
@@ -135,19 +135,54 @@ class VisionService:
             import numpy as np
 
             frame = np.zeros((540, 960, 3), dtype=np.uint8)
-            cv2.putText(frame, message[:90], (40, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (72, 196, 255), 2)
+            self._draw_frame_message(cv2, frame, message)
             _, encoded = cv2.imencode(".jpg", frame)
             return b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + encoded.tobytes() + b"\r\n"
         except Exception:
             return b"--frame\r\nContent-Type: text/plain\r\n\r\nVision unavailable\r\n"
 
     def _draw_frame_message(self, cv2, frame, message):
-        lines = ["Detector unavailable", str(message)[:86]]
-        y = 36
+        height, width = frame.shape[:2]
+        max_chars = max(28, min(84, width // 12))
+        lines = ["Detector unavailable"] + self._wrap_text(str(message), max_chars)[:5]
+        panel_x = 24
+        panel_w = min(width - 48, 900)
+        panel_h = 34 + (len(lines) * 30)
+        panel_y = min(max(height // 3, 96), max(height - panel_h - 24, 24))
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (8, 20, 18), -1)
+        cv2.addWeighted(overlay, 0.82, frame, 0.18, 0, frame)
+        cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (72, 196, 255), 2)
+        y = panel_y + 32
         for line in lines:
-            cv2.putText(frame, line, (18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (0, 0, 0), 4)
-            cv2.putText(frame, line, (18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (72, 196, 255), 2)
+            cv2.putText(frame, line, (panel_x + 18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (0, 0, 0), 4)
+            cv2.putText(frame, line, (panel_x + 18, y), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (230, 255, 249), 2)
             y += 30
+
+    def _wrap_text(self, text, max_chars):
+        words = text.replace("\n", " ").split()
+        lines = []
+        current = ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if len(candidate) <= max_chars:
+                current = candidate
+                continue
+            if current:
+                lines.append(current)
+            current = word[:max_chars]
+        if current:
+            lines.append(current)
+        return lines or [""]
+
+    def _model_error_message(self, model_name, exc):
+        message = str(exc)
+        if "C3k2" in message:
+            return (
+                f"{model_name} requires a newer Ultralytics/PyTorch model runtime than this install. "
+                "Use models/yolov8n.pt or upgrade the ML dependencies before selecting this model."
+            )
+        return message
 
     def save_memory(self, payload):
         event = VisionEvent(

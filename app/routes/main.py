@@ -96,7 +96,7 @@ def dashboard():
 def memories():
     page = request.args.get("page", 1, type=int)
     pagination = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).paginate(page=page, per_page=25, error_out=False)
-    return render_template("memories.html", memories=pagination.items, pagination=pagination, agents=Agent.query.all(), workspaces=Workspace.query.all())
+    return render_template("memories.html", memories=pagination.items, pagination=pagination, agents=Agent.query.all(), workspaces=Workspace.query.all(), enable_bulk_actions=True)
 
 
 @main_bp.get("/memory-assets/<asset_token>")
@@ -800,6 +800,28 @@ def web_forget_memory(memory_id):
 def web_delete_memory(memory_id):
     AdminService.delete_memory(memory_id)
     flash("Memory permanently deleted.", "success")
+    return redirect(request.referrer or url_for("main.memories"))
+
+
+@main_bp.post("/memories/delete-hard-bulk")
+@login_required
+@role_required("admin")
+def web_delete_memories_bulk():
+    memory_ids = []
+    for raw_id in request.form.getlist("memory_ids"):
+        try:
+            memory_ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    memory_ids = list(dict.fromkeys(memory_ids))[:25]
+    deleted = 0
+    for memory_id in memory_ids:
+        if AdminService.delete_memory(memory_id):
+            deleted += 1
+    if deleted:
+        flash(f"{deleted} memories permanently deleted.", "success")
+    else:
+        flash("Select at least one memory to delete.", "warning")
     return redirect(request.referrer or url_for("main.memories"))
 
 
