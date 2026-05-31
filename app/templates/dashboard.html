@@ -17,9 +17,17 @@
   <div class="metric-card"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span><strong>{{ value }}</strong></div>
   {% endfor %}
 </section>
-<section class="grid-2 mt-4">
-  <div class="panel panel-tall"><div class="panel-heading"><h2>Memory Writes</h2><span class="status-dot"></span></div><canvas id="activityChart" height="130"></canvas></div>
-  <div class="panel panel-tall"><div class="panel-heading"><h2>Top Tags</h2><a href="{{ url_for('main.graph') }}">Graph</a></div><div class="tag-cloud">{% for tag,count in top_tags.items() %}<span>{{ tag }} <b>{{ count }}</b></span>{% endfor %}</div></div>
+<section class="mt-4">
+  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Memory Writes</h2><span>last 7 days</span></div><div class="chart-box chart-box-wide"><canvas id="activityChart"></canvas></div></div>
 </section>
+<section class="dashboard-chart-grid mt-4">
+  <div class="panel chart-panel"><div class="panel-heading"><h2>Memory Types</h2><span>active</span></div><div class="chart-box"><canvas id="typeChart"></canvas></div></div>
+  <div class="panel chart-panel"><div class="panel-heading"><h2>Sensitivity</h2><span>active</span></div><div class="chart-box"><canvas id="sensitivityChart"></canvas></div></div>
+  <div class="panel chart-panel"><div class="panel-heading"><h2>Workspaces</h2><span>active</span></div><div class="chart-box"><canvas id="workspaceChart"></canvas></div></div>
+  <div class="panel chart-panel"><div class="panel-heading"><h2>Trust Distribution</h2><span>active</span></div><div class="chart-box"><canvas id="trustChart"></canvas></div></div>
+  <div class="panel chart-panel"><div class="panel-heading"><h2>Sources</h2><span>active</span></div><div class="chart-box"><canvas id="sourceChart"></canvas></div></div>
+</section>
+<script id="dashboardChartsData" type="application/json">{{ dashboard_charts|tojson }}</script>
+<section class="panel mt-4"><div class="panel-heading"><h2>Top Tags</h2><a href="{{ url_for('main.graph') }}">Graph</a></div><div class="tag-cloud">{% for tag,count in top_tags.items() %}<span>{{ tag }} <b>{{ count }}</b></span>{% else %}<span class="text-secondary">No tags yet. Add tags when storing memories.</span>{% endfor %}</div></section>
 <section class="panel mt-4"><div class="panel-heading"><h2>Recent Memories</h2><a href="{{ url_for('main.memories') }}">View all</a></div>{% include "partials/memory_table.html" %}</section>
 {% endblock %}

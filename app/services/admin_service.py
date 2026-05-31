@@ -63,8 +63,13 @@ class AdminService:
 
     @staticmethod
     def create_api_key(agent_id, name):
+        agent = db.session.get(Agent, agent_id)
+        if not agent or not agent.active:
+            raise ValueError("An active agent is required before creating an API key.")
+        if not name or not name.strip():
+            raise ValueError("API key name is required.")
         raw, prefix, key_hash = ApiKey.create_token()
-        key = ApiKey(agent_id=agent_id, name=name.strip(), prefix=prefix, key_hash=key_hash)
+        key = ApiKey(agent_id=agent.id, name=name.strip(), prefix=prefix, key_hash=key_hash)
         db.session.add(key)
         db.session.commit()
         AuditService.log("api_key.created", "user", None, None, "api_key", key.id)
