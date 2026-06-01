@@ -301,8 +301,18 @@ function initMemoryInputModes(){
       field.hidden = !field.classList.contains(`mode-${mode}`);
     });
     if(upload){
-      upload.accept = mode === "image" ? "image/*" : ".txt,.md,.markdown,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.css,.pdf,.docx";
-      upload.multiple = mode !== "image";
+      const documentTypes = ".txt,.md,.markdown,.json,.csv,.log,.yaml,.yml,.py,.js,.html,.css,.xml,.pdf,.docx,.xlsx,.xlsm";
+      const audioTypes = "audio/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.oga,.opus,.wma,.aiff,.aif";
+      if(mode === "image"){
+        upload.accept = "image/*";
+      }else if(mode === "audio"){
+        upload.accept = audioTypes;
+      }else if(mode === "bulk"){
+        upload.accept = `${documentTypes},image/*,${audioTypes}`;
+      }else{
+        upload.accept = documentTypes;
+      }
+      upload.multiple = true;
     }
   };
   modes.forEach(mode=>mode.addEventListener("change",apply));

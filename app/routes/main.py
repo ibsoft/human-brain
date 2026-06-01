@@ -144,10 +144,11 @@ def web_add_memory():
         "source": "web",
     }
     uploads = [item for item in request.files.getlist("uploads") if item and item.filename]
-    if input_mode in ["file", "image"] and not uploads:
-        flash("Choose a file or image to upload.", "danger")
+    upload_modes = {"file", "image", "audio", "bulk"}
+    if input_mode in upload_modes and not uploads:
+        flash("Choose one or more files to upload.", "danger")
         return redirect(url_for("main.memories"))
-    if input_mode in ["file", "image"] and uploads:
+    if input_mode in upload_modes and uploads:
         created = DocumentIngestionService().ingest_uploads(
             uploads,
             payload,

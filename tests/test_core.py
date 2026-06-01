@@ -93,6 +93,41 @@ def test_image_upload_memory_uses_tokenized_asset_url(client, app):
     Path(stored_path).unlink(missing_ok=True)
 
 
+def test_web_bulk_upload_accepts_documents_images_and_audio(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post(
+        "/memories",
+        data={
+            "memory_input_mode": "bulk",
+            "agent_id": str(app.config["TEST_AGENT_ID"]),
+            "workspace_id": str(app.config["TEST_WORKSPACE_ID"]),
+            "memory_type": "long-term",
+            "uploads": [
+                (BytesIO(b"bulk document text"), "bulk-notes.txt"),
+                (BytesIO(b"bulk-image-bytes"), "bulk-photo.jpg"),
+                (BytesIO(b"bulk-audio-bytes"), "bulk-song.mp3"),
+            ],
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+    with app.app_context():
+        document = Memory.query.filter_by(title="bulk-notes.txt").one()
+        image = Memory.query.filter_by(title="bulk-photo.jpg").one()
+        audio = Memory.query.filter_by(title="bulk-song.mp3").one()
+        assert document.memory_type == "long-term"
+        assert image.memory_type == "vision"
+        assert audio.memory_type == "long-term"
+        assert "music" in audio.tags
+        assert "Audio bytes are available" in audio.content
+        assets = MemoryAsset.query.filter(MemoryAsset.memory_id.in_([document.id, image.id, audio.id])).all()
+        assert sorted(asset.asset_type for asset in assets) == ["audio", "document", "image"]
+        stored_paths = [asset.stored_path for asset in assets]
+    for stored_path in stored_paths:
+        Path(stored_path).unlink(missing_ok=True)
+
+
 def test_duplicate_image_upload_reuses_existing_memory(client, app, api_headers):
     first = client.post(
         "/api/v1/memory/upload",
