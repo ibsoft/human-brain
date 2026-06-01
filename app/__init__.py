@@ -1,8 +1,9 @@
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from logging.config import dictConfig
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask
 from sqlalchemy.exc import SQLAlchemyError
@@ -49,13 +50,21 @@ def register_template_filters(app):
         if value is None:
             return ""
         if isinstance(value, (int, float)):
-            value = datetime.fromtimestamp(value)
+            value = datetime.fromtimestamp(value, tz=timezone.utc)
         if isinstance(value, str):
             try:
                 value = datetime.fromisoformat(value)
             except ValueError:
                 return value
-        return value.strftime("%Y-%m-%d %H:%M")
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        try:
+            from app.services.settings_service import SettingsService
+
+            target_timezone = ZoneInfo(SettingsService.get("display_timezone", "UTC"))
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            target_timezone = timezone.utc
+        return value.astimezone(target_timezone).strftime("%Y-%m-%d %H:%M")
 
 
 def register_template_context(app):

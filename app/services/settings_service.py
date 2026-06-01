@@ -1,4 +1,5 @@
 import os
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, has_app_context
 
@@ -16,6 +17,11 @@ DEFAULT_SETTINGS = {
         "env": "HUMAN_BRAIN_URL",
         "value_type": "string",
         "description": "Public external URL used in generated asset links, for example https://human-brain.example.lan.",
+    },
+    "display_timezone": {
+        "value": "UTC",
+        "value_type": "string",
+        "description": "IANA timezone used when displaying stored timestamps in tables and pages.",
     },
     "auto_store_consolidated_memory": {
         "value": False,
@@ -280,6 +286,21 @@ def _normalize_yolo_model_list(values):
     return normalized
 
 
+def _normalize_timezone(value):
+    timezone_name = str(value or "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return "UTC"
+    return timezone_name
+
+
+def _sanitize_timezone_setting():
+    setting = AppSetting.query.filter_by(key="display_timezone").first()
+    if setting:
+        setting.value = _normalize_timezone(setting.value)
+
+
 class SettingsService:
     @staticmethod
     def ensure_defaults():
@@ -299,6 +320,7 @@ class SettingsService:
                     )
                 )
         _sanitize_yolo_settings()
+        _sanitize_timezone_setting()
         db.session.commit()
 
     @staticmethod
@@ -327,6 +349,8 @@ class SettingsService:
                 value = _normalize_yolo_model_list(value)
                 if DEFAULT_SETTINGS["yolo_model"]["value"] not in value:
                     value.insert(0, DEFAULT_SETTINGS["yolo_model"]["value"])
+            if key == "display_timezone":
+                value = _normalize_timezone(value)
             setting = AppSetting.query.filter_by(key=key).first()
             if setting:
                 setting.value = value

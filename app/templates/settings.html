@@ -9,6 +9,18 @@
       {% endfor %}
       <label class="form-label mt-3">Public base URL</label><input class="form-control" name="public_base_url" value="{{ settings.public_base_url }}" placeholder="https://human-brain.ibnet.lan">
       <div class="form-text text-secondary">Used for tokenized uploaded file/image URLs returned to remote agents.</div>
+      <label class="form-label mt-3">Display timezone</label>
+      <input class="form-control" name="display_timezone" value="{{ settings.display_timezone }}" placeholder="Europe/Athens" list="timezoneOptions">
+      <datalist id="timezoneOptions">
+        <option value="UTC">
+        <option value="Europe/Athens">
+        <option value="Europe/London">
+        <option value="Europe/Berlin">
+        <option value="America/New_York">
+        <option value="America/Los_Angeles">
+        <option value="Asia/Tokyo">
+      </datalist>
+      <div class="form-text text-secondary">Used for table and page display times. Stored timestamps remain UTC.</div>
       <label class="form-label mt-3">Retention days</label><input class="form-control" type="number" name="retention_days" value="{{ settings.retention_days }}" placeholder="365">
       <h2 class="mt-4">Embedding Models</h2>
       <label class="form-label">Active embedding model</label>
