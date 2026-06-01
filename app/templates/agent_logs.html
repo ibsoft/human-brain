@@ -17,7 +17,7 @@
       <tbody>
       {% for item in logs["items"] %}
       <tr data-detail-title="{{ item.method }} {{ item.path }}">
-        <td>{{ item.ts }}</td>
+        <td>{{ item.ts|dt }}</td>
         <td><span class="badge text-bg-{{ 'warning' if item.level == 'warning' else 'info' }}">{{ item.level }}</span></td>
         <td>{{ item.agent_id or "-" }}</td>
         <td>{{ item.method }}</td>
