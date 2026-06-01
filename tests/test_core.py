@@ -3,6 +3,8 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
+from flask import render_template
+
 from app.extensions import db
 from app.models import AuditLog, Memory, MemoryAsset, SessionMessage, User, Workspace
 from app.services.agent_log_service import AgentLogService
@@ -362,6 +364,36 @@ def test_agent_logs_keep_unicode_readable(app, tmp_path):
         logs = service.items(query="Πες", page=1, per_page=10)
         assert logs["total"] == 2
         assert logs["items"][0]["_detail"]["body"]["query"] == "Πες μου για την εικόνα"
+
+
+def test_agent_logs_template_uses_display_timezone(app):
+    with app.app_context():
+        SettingsService.update({"display_timezone": "Europe/Athens"})
+    with app.test_request_context("/agent-logs"):
+        html = render_template(
+            "agent_logs.html",
+            logs={
+                "items": [
+                    {
+                        "ts": "2026-01-01T12:00:00",
+                        "level": "info",
+                        "agent_id": None,
+                        "method": "POST",
+                        "path": "/api/v1/memory/search",
+                        "status": 200,
+                        "_file": "agent_api.jsonl",
+                        "_line": 1,
+                        "_detail": {},
+                    }
+                ],
+                "total": 1,
+                "page": 1,
+                "per_page": 50,
+            },
+            query="",
+        )
+        assert "2026-01-01 14:00" in html
+        assert "2026-01-01T12:00:00" not in html
 
 
 def test_viewer_cannot_create_agent(client, app):
