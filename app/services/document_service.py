@@ -13,6 +13,7 @@ from app.utils.hash import sha256_text
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".csv", ".log", ".yaml", ".yml", ".py", ".js", ".html", ".css", ".xml"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wma", ".aiff", ".aif"}
 
 
 class DocumentIngestionService:
@@ -23,7 +24,7 @@ class DocumentIngestionService:
             if not upload or not upload.filename:
                 continue
             stored_path = self._save(upload)
-            payloads = self._payloads_for_file(stored_path, upload.mimetype, base_payload, mode, chunk_size)
+            payloads = self._payloads_for_file(stored_path, upload.mimetype, base_payload, mode, chunk_size, upload.filename)
             created_new_asset = False
             for payload in payloads:
                 existing = self._existing_uploaded_image(payload)
@@ -73,7 +74,7 @@ class DocumentIngestionService:
             "source": memory.source or "upload",
             "storage_reason": f"Replaced uploaded file with {stored_path.name}.",
         }
-        payload = self._payloads_for_file(stored_path, upload.mimetype, base_payload, "full", chunk_size)[0]
+        payload = self._payloads_for_file(stored_path, upload.mimetype, base_payload, "full", chunk_size, upload.filename)[0]
         memory.title = payload.get("title") or memory.title
         memory.content = payload["content"]
         memory.summary = payload.get("summary")
@@ -122,8 +123,9 @@ class DocumentIngestionService:
         upload.save(path)
         return path
 
-    def _payloads_for_file(self, path, mimetype, base_payload, mode, chunk_size):
+    def _payloads_for_file(self, path, mimetype, base_payload, mode, chunk_size, original_filename=None):
         ext = path.suffix.lower()
+        display_name = original_filename or path.name
         tags = list(base_payload.get("tags") or [])
         tags.extend(["upload", ext.lstrip(".") or "file"])
         common = {
@@ -135,7 +137,7 @@ class DocumentIngestionService:
         if ext in IMAGE_EXTENSIONS or str(mimetype).startswith("image/"):
             vector, vector_hash, metadata = AssetVectorService().image_vector(path)
             content = (
-                f"Uploaded image: {path.name}\n"
+                f"Uploaded image: {display_name}\n"
                 "Asset URL: pending\n"
                 f"MIME type: {mimetype or 'unknown'}\n"
                 f"Image vector: {metadata.get('vector_kind')} {vector_hash}\n"
@@ -146,12 +148,39 @@ class DocumentIngestionService:
             return [
                 {
                     **common,
-                    "title": common.get("title") or path.name,
+                    "title": common.get("title") or display_name,
                     "content": content,
                     "summary": f"Uploaded image with {metadata.get('vector_kind')} vector.",
                     "memory_type": "vision",
                     "tags": [tag for tag in image_tags if tag],
                     "_asset_type": "image",
+                    "_asset_vector": vector,
+                    "_asset_hash": vector_hash,
+                    "_asset_metadata": metadata,
+                }
+            ]
+
+        if ext in AUDIO_EXTENSIONS or str(mimetype).startswith("audio/"):
+            vector, vector_hash, metadata = AssetVectorService().file_vector(path)
+            size_bytes = path.stat().st_size if path.exists() else 0
+            content = (
+                f"Uploaded audio/music file: {display_name}\n"
+                "Asset URL: pending\n"
+                f"MIME type: {mimetype or 'unknown'}\n"
+                f"Size: {size_bytes} bytes\n"
+                f"Audio fingerprint: {metadata.get('vector_kind')} {vector_hash}\n"
+                "Audio bytes are available through the tokenized asset URL."
+            )
+            audio_tags = sorted(set(common["tags"] + ["audio", "music"]))
+            return [
+                {
+                    **common,
+                    "title": common.get("title") or display_name,
+                    "content": content,
+                    "summary": "Uploaded audio/music file stored as a memory asset.",
+                    "memory_type": common.get("memory_type") or "media",
+                    "tags": audio_tags,
+                    "_asset_type": "audio",
                     "_asset_vector": vector,
                     "_asset_hash": vector_hash,
                     "_asset_metadata": metadata,
@@ -170,13 +199,13 @@ class DocumentIngestionService:
             return [
                 {
                     **common,
-                    "title": f"{common.get('title') or path.name} - chunk {index + 1}",
+                    "title": f"{common.get('title') or display_name} - chunk {index + 1}",
                     "content": chunk,
-                    "summary": f"Chunk {index + 1} from uploaded file {path.name}.",
+                    "summary": f"Chunk {index + 1} from uploaded file {display_name}.",
                 }
                 for index, chunk in enumerate(chunks)
             ]
-        return [{**common, "title": common.get("title") or path.name, "content": text}]
+        return [{**common, "title": common.get("title") or display_name, "content": text}]
 
     def _normalize_mode(self, mode):
         value = str(mode or "full").strip().lower()
@@ -237,6 +266,8 @@ class DocumentIngestionService:
     def _asset_vector_for(self, asset_type, path, mimetype, asset_text=None, fallback_text=""):
         if asset_type == "image":
             return AssetVectorService().image_vector(path)
+        if asset_type == "audio":
+            return AssetVectorService().file_vector(path)
         return AssetVectorService().document_vector(asset_text or fallback_text, path)
 
     def _attach_asset_url(self, memory, asset):

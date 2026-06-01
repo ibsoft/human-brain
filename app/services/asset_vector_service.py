@@ -50,6 +50,9 @@ class AssetVectorService:
         }
         return vector, sha256_json([round(float(x), 6) for x in vector]), metadata
 
+    def file_vector(self, path):
+        return self._byte_vector(path)
+
     def _byte_vector(self, path):
         data = Path(path).read_bytes()
         buckets = [0.0] * 384
