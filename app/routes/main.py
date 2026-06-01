@@ -564,6 +564,7 @@ def settings():
         values = {
             "local_first_privacy_mode": request.form.get("local_first_privacy_mode") == "on",
             "public_base_url": request.form.get("public_base_url", "").strip().rstrip("/"),
+            "display_timezone": request.form.get("display_timezone", "UTC").strip(),
             "auto_store_consolidated_memory": request.form.get("auto_store_consolidated_memory") == "on",
             "camera_enabled": request.form.get("camera_enabled") == "on",
             "snapshot_storage_enabled": request.form.get("snapshot_storage_enabled") == "on",

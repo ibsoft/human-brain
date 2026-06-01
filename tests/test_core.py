@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -731,6 +732,21 @@ def test_vision_model_settings_normalize_standard_filenames(app):
         SettingsService.update({"yolo_model": "yolov8s.pt", "vision_models": ["models/yolov8n.pt", "yolov8n.pt", "yolov8s.pt", "/models/custom.pt"]})
         assert SettingsService.get("yolo_model") == "models/yolov8s.pt"
         assert SettingsService.get("vision_models") == ["models/yolov8n.pt", "models/yolov8s.pt", "/models/custom.pt"]
+
+
+def test_display_timezone_changes_dt_filter(app):
+    with app.app_context():
+        SettingsService.update({"display_timezone": "Europe/Athens"})
+        rendered = app.jinja_env.filters["dt"](datetime(2026, 1, 1, 12, 0))
+        assert rendered == "2026-01-01 14:00"
+
+
+def test_invalid_display_timezone_falls_back_to_utc(app):
+    with app.app_context():
+        SettingsService.update({"display_timezone": "Not/AZone"})
+        assert SettingsService.get("display_timezone") == "UTC"
+        rendered = app.jinja_env.filters["dt"](datetime(2026, 1, 1, 12, 0))
+        assert rendered == "2026-01-01 12:00"
 
 
 def test_vision_model_error_message_explains_yolo26_runtime_mismatch(app):
