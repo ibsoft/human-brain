@@ -45,6 +45,7 @@ def dashboard():
     for memory in active_memories[:500]:
         for tag in memory.tags or []:
             top_tags[tag] = top_tags.get(tag, 0) + 1
+    top_tags = dict(sorted(top_tags.items(), key=lambda item: (-item[1], item[0]))[:20])
     today = datetime.utcnow().date()
     chart_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
     chart_start = datetime.combine(chart_days[0], datetime.min.time())

@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import render_template
 
 from app.extensions import db
-from app.models import AuditLog, Memory, MemoryAsset, SessionMessage, User, Workspace
+from app.models import Agent, AuditLog, Memory, MemoryAsset, SessionMessage, User, Workspace
 from app.services.agent_log_service import AgentLogService
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
@@ -14,6 +14,7 @@ from app.services.reranker_service import RerankerService
 from app.services.settings_service import SettingsService
 from app.services.vision_service import VisionRuntime, VisionService
 from app.security.totp import generate_totp_secret, totp_code
+from app.utils.hash import sha256_text
 from app.workers.tasks import consolidate_session_task
 
 
@@ -113,6 +114,50 @@ def test_web_admin_create_workspace_agent_and_key(client):
     assert agent.status_code == 200
     key = client.post("/api-keys", data={"agent_id": "1", "name": "UI key"}, follow_redirects=True)
     assert key.status_code == 200
+
+
+def test_dashboard_shows_top_20_tags_sorted(client, app):
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        workspace = Workspace.query.first()
+        agent = Agent.query.first()
+        for index in range(25):
+            db.session.add(
+                Memory(
+                    agent_id=agent.id,
+                    workspace_id=workspace.id,
+                    title=f"Tagged memory {index}",
+                    content=f"Tagged content {index}",
+                    content_hash=sha256_text(f"Tagged content {index}"),
+                    memory_type="facts",
+                    tags=[f"tag-{index}"],
+                    importance_score=0.5,
+                    trust_score=0.5,
+                    sensitivity_level="normal",
+                    source="test",
+                )
+            )
+        db.session.add(
+            Memory(
+                agent_id=agent.id,
+                workspace_id=workspace.id,
+                title="Repeated tag memory",
+                content="Repeated tag content",
+                content_hash=sha256_text("Repeated tag content"),
+                memory_type="facts",
+                tags=["tag-24"],
+                importance_score=0.5,
+                trust_score=0.5,
+                sensitivity_level="normal",
+                source="test",
+            )
+        )
+        db.session.commit()
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/")
+    assert res.status_code == 200
+    assert b"tag-24 <b>2</b>" in res.data
+    assert res.data.count(b"<span>tag-") == 20
 
 
 def test_image_upload_memory_uses_tokenized_asset_url(client, app):
