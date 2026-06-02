@@ -39,6 +39,30 @@ async function getJson(path){
 }
 function showGlobalSpinner(){document.getElementById("globalSpinner")?.removeAttribute("hidden")}
 function hideGlobalSpinner(){document.getElementById("globalSpinner")?.setAttribute("hidden","")}
+function initThemeMode(){
+  const key = "hb-theme-mode";
+  const button = document.getElementById("themeModeToggle");
+  const apply = mode => {
+    const normalized = mode === "light" ? "light" : "dark";
+    document.documentElement.dataset.bsTheme = normalized;
+    document.body.classList.toggle("theme-light", normalized === "light");
+    document.body.classList.toggle("theme-dark", normalized !== "light");
+    if(button){
+      button.innerHTML = normalized === "light" ? '<i class="fa-solid fa-sun"></i>' : '<i class="fa-solid fa-moon"></i>';
+      button.title = normalized === "light" ? "Switch to dark mode" : "Switch to light mode";
+      button.setAttribute("aria-label", button.title);
+    }
+  };
+  const saved = localStorage.getItem(key) || "dark";
+  apply(saved);
+  if(button){
+    button.addEventListener("click",()=>{
+      const next = document.body.classList.contains("theme-light") ? "dark" : "light";
+      localStorage.setItem(key, next);
+      apply(next);
+    });
+  }
+}
 function initGlobalUx(){
   setTimeout(()=>document.querySelectorAll(".alert").forEach(alert=>alert.remove()),7000);
   document.querySelectorAll("form").forEach(form=>{
@@ -82,6 +106,7 @@ function initScrollMemory(){
     });
   });
 }
+initThemeMode();
 initScrollMemory();
 initGlobalUx();
 function initNavAccordionState(){
@@ -529,13 +554,42 @@ function initMemoryGraph(){
   const graphEdgeCount=document.getElementById("graphEdgeCount");
   const graphFilter=document.getElementById("graphFilter");
   const graphDetails=document.getElementById("graphDetails");
+  const graphZoomIn=document.getElementById("graphZoomIn");
+  const graphZoomOut=document.getElementById("graphZoomOut");
+  const graphZoomReset=document.getElementById("graphZoomReset");
+  const graphFullscreen=document.getElementById("graphFullscreen");
   if(graphNodeCount) graphNodeCount.textContent=data.nodes.length;
   if(graphEdgeCount) graphEdgeCount.textContent=data.edges.length;
   const ctx=canvas.getContext("2d");
-  const colors={memory:"#38e88f",agent:"#9cffcb",workspace:"#f2c94c",session:"#7dd3a8",tag:"#ff8aa0",type:"#c8ffe3"};
-  const resize=()=>{const rect=canvas.getBoundingClientRect();canvas.width=rect.width*devicePixelRatio;canvas.height=620*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0)};
+  const colors={memory:"#48c4ff",agent:"#38e88f",workspace:"#f2c94c",session:"#d69cff",tag:"#ff8aa0",type:"#c8ffe3"};
+  const viewport={scale:1,x:0,y:0};
+  const galaxy={stars:[],started:performance.now()};
+  let graphWidth=0;
+  let graphHeight=620;
+  const resize=()=>{const rect=canvas.getBoundingClientRect();graphWidth=rect.width;graphHeight=rect.height||620;canvas.width=rect.width*devicePixelRatio;canvas.height=graphHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);galaxy.stars=Array.from({length:Math.max(80,Math.floor(graphWidth/6))},(_,i)=>({x:Math.random()*graphWidth,y:Math.random()*graphHeight,r:.3+Math.random()*1.05,a:.12+Math.random()*.32,twinkle:Math.random()*Math.PI*2,depth:.4+Math.random()*1.4}))};
   resize();
-  const nodeMap=Object.fromEntries(data.nodes.map(n=>[n.id,{...n,x:24+Math.random()*(canvas.width/devicePixelRatio-48),y:24+Math.random()*572,vx:0,vy:0}]));
+  const kindOffset={memory:0,agent:.6,workspace:1.2,session:1.8,tag:2.4,type:3};
+  const goldenAngle=Math.PI*(3-Math.sqrt(5));
+  const agents=data.nodes.filter(n=>n.kind==="agent");
+  const agentCenterMap=Object.fromEntries(agents.map((agent,index)=>{
+    const count=Math.max(agents.length,1);
+    const angle=index*Math.PI*2/count;
+    const radius=count===1?0:Math.min(46,18+count*5);
+    return [agent.id,{x:graphWidth/2+Math.cos(angle)*radius,y:graphHeight/2+Math.sin(angle)*radius*.68}];
+  }));
+  const nodeMap=Object.fromEntries(data.nodes.map((n,index)=>{
+    if(n.kind==="agent"){
+      const center=agentCenterMap[n.id]||{x:graphWidth/2,y:graphHeight/2};
+      return [n.id,{...n,x:center.x,y:center.y,vx:0,vy:0,orbit:index%7,pinned:true}];
+    }
+    const angle=index*goldenAngle+(kindOffset[n.kind]||0);
+    const maxRadius=Math.max(120,Math.min(graphWidth,graphHeight)*.42);
+    const baseRadius=n.kind==="memory"?28:52;
+    const radius=Math.min(maxRadius,baseRadius+Math.sqrt(index+1)*12);
+    const x=graphWidth/2+Math.cos(angle)*radius;
+    const y=graphHeight/2+Math.sin(angle)*radius*.68;
+    return [n.id,{...n,x:Math.max(26,Math.min(graphWidth-26,x)),y:Math.max(26,Math.min(graphHeight-26,y)),vx:0,vy:0,orbit:index%7}];
+  }));
   const edges=data.edges.filter(e=>nodeMap[e.source]&&nodeMap[e.target]);
   if(!data.nodes.length){
     ctx.fillStyle="#74889e";
@@ -543,21 +597,177 @@ function initMemoryGraph(){
     ctx.fillText("No graph data yet. Add memories to populate relationships.",24,42);
     return;
   }
-  function visibleNodes(){const f=graphFilter ? graphFilter.value : "";return Object.values(nodeMap).filter(n=>!f||n.kind===f||n.kind==="memory")}
+  function visibleNodes(){
+    const f=graphFilter ? graphFilter.value : "core";
+    if(f==="all") return Object.values(nodeMap);
+    if(f==="core") return Object.values(nodeMap).filter(n=>["memory","agent","workspace"].includes(n.kind));
+    return Object.values(nodeMap).filter(n=>n.kind===f||n.kind==="memory");
+  }
+  function updateVisibleCounts(){
+    const nodes=visibleNodes();
+    if(graphNodeCount) graphNodeCount.textContent=nodes.length;
+    if(graphEdgeCount) graphEdgeCount.textContent=edges.filter(e=>nodes.includes(nodeMap[e.source])&&nodes.includes(nodeMap[e.target])).length;
+  }
+  function screenToGraph(x,y){return {x:(x-viewport.x)/viewport.scale,y:(y-viewport.y)/viewport.scale}}
+  function applyZoom(nextScale,centerX=graphWidth/2,centerY=graphHeight/2){
+    const clamped=Math.max(.35,Math.min(3.5,nextScale));
+    const graphPoint=screenToGraph(centerX,centerY);
+    viewport.scale=clamped;
+    viewport.x=centerX-graphPoint.x*viewport.scale;
+    viewport.y=centerY-graphPoint.y*viewport.scale;
+  }
+  function zoomBy(factor,centerX,centerY){applyZoom(viewport.scale*factor,centerX,centerY)}
+  function resetView(){viewport.scale=1;viewport.x=0;viewport.y=0}
   function tick(){
     const nodes=visibleNodes();
-    for(const a of nodes){for(const b of nodes){if(a===b)continue;const dx=a.x-b.x,dy=a.y-b.y,d2=Math.max(dx*dx+dy*dy,80);const f=80/d2;a.vx+=dx*f;a.vy+=dy*f}}
-    for(const e of edges){const a=nodeMap[e.source],b=nodeMap[e.target];if(!nodes.includes(a)||!nodes.includes(b))continue;const dx=b.x-a.x,dy=b.y-a.y;a.vx+=dx*.002;a.vy+=dy*.002;b.vx-=dx*.002;b.vy-=dy*.002}
-    for(const n of nodes){n.vx*=.86;n.vy*=.86;n.x=Math.max(24,Math.min(canvas.width/devicePixelRatio-24,n.x+n.vx));n.y=Math.max(24,Math.min(596,n.y+n.vy))}
+    const centerX=graphWidth/2,centerY=graphHeight/2;
+    for(const a of nodes){
+      for(const b of nodes){
+        if(a===b)continue;
+        const dx=a.x-b.x,dy=a.y-b.y,d2=Math.max(dx*dx+dy*dy,260);
+        const f=18/d2;
+        a.vx+=dx*f;
+        a.vy+=dy*f;
+      }
+    }
+    for(const e of edges){
+      const a=nodeMap[e.source],b=nodeMap[e.target];
+      if(!nodes.includes(a)||!nodes.includes(b))continue;
+      const dx=b.x-a.x,dy=b.y-a.y;
+      const pull=a.kind==="memory"||b.kind==="memory"?.0018:.0012;
+      if(a.kind!=="agent"){
+        a.vx+=dx*pull;
+        a.vy+=dy*pull;
+      }
+      if(b.kind!=="agent"){
+        b.vx-=dx*pull;
+        b.vy-=dy*pull;
+      }
+    }
+    for(const n of nodes){
+      if(n.kind==="agent"){
+        const target=agentCenterMap[n.id]||{x:centerX,y:centerY};
+        n.vx+=(target.x-n.x)*.08;
+        n.vy+=(target.y-n.y)*.08;
+      }else{
+        n.vx+=(centerX-n.x)*.0009;
+        n.vy+=(centerY-n.y)*.0009;
+      }
+      n.vx*=.82;
+      n.vy*=.82;
+      n.x=Math.max(36,Math.min(graphWidth-36,n.x+n.vx));
+      n.y=Math.max(36,Math.min(graphHeight-36,n.y+n.vy));
+    }
+  }
+  function drawSpace(time){
+    const centerX=graphWidth/2,centerY=graphHeight/2;
+    const bg=ctx.createRadialGradient(centerX,centerY,20,centerX,centerY,Math.max(graphWidth,graphHeight)*.72);
+    bg.addColorStop(0,"rgba(56,232,143,.08)");
+    bg.addColorStop(.22,"rgba(72,196,255,.045)");
+    bg.addColorStop(.62,"rgba(8,13,24,.88)");
+    bg.addColorStop(1,"rgba(1,3,8,1)");
+    ctx.fillStyle=bg;
+    ctx.fillRect(0,0,graphWidth,graphHeight);
+    for(const star of galaxy.stars){
+      const pulse=(Math.sin(time*.0016*star.depth+star.twinkle)+1)/2;
+      ctx.fillStyle=`rgba(205,226,245,${star.a*(.35+pulse*.4)})`;
+      ctx.beginPath();
+      ctx.arc(star.x,star.y,star.r,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.save();
+    ctx.translate(centerX,centerY);
+    ctx.rotate(time*.000018);
+    for(let arm=0;arm<4;arm++){
+      ctx.strokeStyle=arm%2?"rgba(72,196,255,.045)":"rgba(56,232,143,.04)";
+      ctx.lineWidth=.9;
+      ctx.beginPath();
+      for(let i=0;i<130;i++){
+        const r=10+i*3.2;
+        const a=arm*Math.PI/2+i*.105;
+        const x=Math.cos(a)*r;
+        const y=Math.sin(a)*r*.58;
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    for(let ring=0;ring<4;ring++){
+      const radius=((time*.018+ring*155)%620)+30;
+      ctx.strokeStyle=`rgba(72,196,255,${Math.max(0,.075-radius/1150)})`;
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.arc(centerX,centerY,radius,0,Math.PI*2);
+      ctx.stroke();
+    }
+  }
+  function drawNode(node,time){
+    const base=node.kind==="memory"?7:10;
+    const radius=base;
+    const color=colors[node.kind]||"#fff";
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(node.x,node.y,radius,0,Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,.34)";
+    ctx.lineWidth=.7;
+    ctx.stroke();
+    const shouldLabel = viewport.scale>1.15 || (viewport.scale>.72 && ["memory","agent","workspace"].includes(node.kind));
+    if(shouldLabel){
+      ctx.fillStyle="#dcecff";
+      ctx.font=node.kind==="memory"?"12px system-ui":"600 12px system-ui";
+      const label=node.label.length>38?`${node.label.slice(0,35)}...`:node.label;
+      ctx.fillText(label,node.x+13,node.y+4);
+    }
   }
   function draw(){
-    tick();ctx.clearRect(0,0,canvas.width,canvas.height);const nodes=visibleNodes();
-    ctx.lineWidth=1;for(const e of edges){const a=nodeMap[e.source],b=nodeMap[e.target];if(!nodes.includes(a)||!nodes.includes(b))continue;ctx.strokeStyle="rgba(148,168,189,.18)";ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}
-    for(const n of nodes){ctx.fillStyle=colors[n.kind]||"#fff";ctx.beginPath();ctx.arc(n.x,n.y,n.kind==="memory"?7:10,0,Math.PI*2);ctx.fill();ctx.fillStyle="#dcecff";ctx.font="12px system-ui";ctx.fillText(n.label,n.x+12,n.y+4)}
+    const time=performance.now()-galaxy.started;
+    tick();ctx.clearRect(0,0,canvas.width,canvas.height);drawSpace(time);const nodes=visibleNodes();
+    ctx.save();
+    ctx.translate(viewport.x,viewport.y);
+    ctx.scale(viewport.scale,viewport.scale);
+    ctx.globalCompositeOperation="lighter";
+    ctx.lineWidth=.7;for(const e of edges){const a=nodeMap[e.source],b=nodeMap[e.target];if(!nodes.includes(a)||!nodes.includes(b))continue;const strength=Math.max(.025,Math.min(.13,Number(e.strength||.1)));ctx.strokeStyle=`rgba(125,211,252,${strength})`;ctx.beginPath();ctx.moveTo(a.x,a.y);const midX=(a.x+b.x)/2+(b.y-a.y)*.035,midY=(a.y+b.y)/2-(b.x-a.x)*.035;ctx.quadraticCurveTo(midX,midY,b.x,b.y);ctx.stroke()}
+    for(const n of nodes){drawNode(n,time)}
+    ctx.globalCompositeOperation="source-over";
+    ctx.restore();
     requestAnimationFrame(draw);
   }
-  canvas.addEventListener("click",ev=>{const r=canvas.getBoundingClientRect();const x=ev.clientX-r.left,y=ev.clientY-r.top;let found=null;for(const n of visibleNodes()){if(Math.hypot(n.x-x,n.y-y)<14)found=n}if(found&&graphDetails){const related=edges.filter(e=>e.source===found.id||e.target===found.id).length;graphDetails.classList.remove("empty");graphDetails.innerHTML=`<h3>${escapeHtml(found.label)}</h3><p><span class="badge text-bg-info">${escapeHtml(found.kind)}</span></p><pre>${escapeHtml(JSON.stringify(found.meta||{},null,2))}</pre><p class="text-secondary">${related} relationships</p>`}});
-  if(graphFilter) graphFilter.addEventListener("change",()=>{});
+  canvas.addEventListener("wheel",ev=>{ev.preventDefault();const r=canvas.getBoundingClientRect();zoomBy(ev.deltaY<0?1.14:.88,ev.clientX-r.left,ev.clientY-r.top)},{passive:false});
+  let dragging=false;
+  let dragStart=null;
+  let dragMoved=false;
+  canvas.addEventListener("pointerdown",ev=>{dragging=true;dragMoved=false;dragStart={x:ev.clientX,y:ev.clientY,viewX:viewport.x,viewY:viewport.y};canvas.setPointerCapture(ev.pointerId)});
+  canvas.addEventListener("pointermove",ev=>{if(!dragging||!dragStart)return;const dx=ev.clientX-dragStart.x,dy=ev.clientY-dragStart.y;if(Math.hypot(dx,dy)>3)dragMoved=true;viewport.x=dragStart.viewX+dx;viewport.y=dragStart.viewY+dy});
+  canvas.addEventListener("pointerup",ev=>{dragging=false;dragStart=null;canvas.releasePointerCapture(ev.pointerId)});
+  canvas.addEventListener("pointercancel",()=>{dragging=false;dragStart=null});
+  canvas.addEventListener("click",ev=>{if(dragMoved){dragMoved=false;return;}const r=canvas.getBoundingClientRect();const point=screenToGraph(ev.clientX-r.left,ev.clientY-r.top);let found=null;for(const n of visibleNodes()){if(Math.hypot(n.x-point.x,n.y-point.y)<14)found=n}if(found&&graphDetails){const related=edges.filter(e=>e.source===found.id||e.target===found.id).length;graphDetails.classList.remove("empty");graphDetails.innerHTML=`<h3>${escapeHtml(found.label)}</h3><p><span class="badge text-bg-info">${escapeHtml(found.kind)}</span></p><pre>${escapeHtml(JSON.stringify(found.meta||{},null,2))}</pre><p class="text-secondary">${related} relationships</p>`}});
+  if(graphZoomIn) graphZoomIn.addEventListener("click",()=>zoomBy(1.18));
+  if(graphZoomOut) graphZoomOut.addEventListener("click",()=>zoomBy(.85));
+  if(graphZoomReset) graphZoomReset.addEventListener("click",resetView);
+  if(graphFullscreen){
+    const panel=canvas.closest(".graph-panel");
+    const updateFullscreenButton=()=>{
+      const active=document.fullscreenElement===panel;
+      graphFullscreen.innerHTML=active?'<i class="fa-solid fa-compress"></i>':'<i class="fa-solid fa-expand"></i>';
+      graphFullscreen.title=active?"Exit fullscreen":"Fullscreen graph";
+      graphFullscreen.setAttribute("aria-label", graphFullscreen.title);
+      setTimeout(resize,80);
+    };
+    graphFullscreen.addEventListener("click",async()=>{
+      if(!panel||!document.fullscreenEnabled) return;
+      try{
+        if(document.fullscreenElement===panel) await document.exitFullscreen();
+        else await panel.requestFullscreen();
+      }catch(error){
+        console.warn("Could not toggle graph fullscreen", error);
+      }
+    });
+    document.addEventListener("fullscreenchange",updateFullscreenButton);
+  }
+  window.addEventListener("resize",resize);
+  updateVisibleCounts();
+  if(graphFilter) graphFilter.addEventListener("change",updateVisibleCounts);
   draw();
 }
 initMemoryGraph();

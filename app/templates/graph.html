@@ -22,15 +22,22 @@
   <div class="panel graph-panel">
     <div class="panel-heading">
       <h2>Interactive Graph</h2>
-      <select id="graphFilter" class="form-select graph-filter">
-        <option value="">All nodes</option>
-        <option value="memory">Memories</option>
-        <option value="agent">Agents</option>
-        <option value="workspace">Workspaces</option>
-        <option value="session">Sessions</option>
-        <option value="tag">Tags</option>
-        <option value="type">Memory types</option>
-      </select>
+      <div class="graph-toolbar">
+        <button id="graphZoomOut" class="btn btn-sm btn-outline-info" type="button" title="Zoom out"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+        <button id="graphZoomIn" class="btn btn-sm btn-outline-info" type="button" title="Zoom in"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+        <button id="graphZoomReset" class="btn btn-sm btn-outline-secondary" type="button" title="Reset view"><i class="fa-solid fa-arrows-to-circle"></i></button>
+        <button id="graphFullscreen" class="btn btn-sm btn-outline-secondary" type="button" title="Fullscreen graph"><i class="fa-solid fa-expand"></i></button>
+        <select id="graphFilter" class="form-select graph-filter">
+          <option value="core" selected>Core graph</option>
+          <option value="all">All nodes</option>
+          <option value="memory">Memories</option>
+          <option value="agent">Agents</option>
+          <option value="workspace">Workspaces</option>
+          <option value="session">Sessions</option>
+          <option value="tag">Tags</option>
+          <option value="type">Memory types</option>
+        </select>
+      </div>
     </div>
     <canvas id="memoryGraphCanvas" height="620"></canvas>
   </div>
