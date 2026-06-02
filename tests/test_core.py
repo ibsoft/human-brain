@@ -63,6 +63,17 @@ def test_profile_modal_includes_mfa_qr_target(client):
     assert b"otpauth://totp/" in res.data
 
 
+def test_profile_default_theme_can_be_saved(client, app):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post("/profile/theme", data={"default_theme": "light"}, follow_redirects=True)
+    assert res.status_code == 200
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        assert user.default_theme == "light"
+    page = client.get("/")
+    assert b'name="default_theme" value="light" checked' in page.data
+
+
 def test_first_run_setup_creates_admin(client, app):
     with app.app_context():
         db.session.expunge_all()

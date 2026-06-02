@@ -42,6 +42,7 @@ function hideGlobalSpinner(){document.getElementById("globalSpinner")?.setAttrib
 function initThemeMode(){
   const key = "hb-theme-mode";
   const button = document.getElementById("themeModeToggle");
+  const form = document.getElementById("defaultThemeForm");
   const apply = mode => {
     const normalized = mode === "light" ? "light" : "dark";
     document.documentElement.dataset.bsTheme = normalized;
@@ -60,6 +61,21 @@ function initThemeMode(){
       const next = document.body.classList.contains("theme-light") ? "dark" : "light";
       localStorage.setItem(key, next);
       apply(next);
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const url = button.dataset.themeUrl;
+      if(url){
+        fetch(url,{
+          method:"POST",
+          headers:{"Content-Type":"application/x-www-form-urlencoded","X-CSRFToken":csrf},
+          body:new URLSearchParams({default_theme:next}),
+        }).catch(()=>{});
+      }
+    });
+  }
+  if(form){
+    form.addEventListener("submit",()=>{
+      const selected = form.querySelector('input[name="default_theme"]:checked')?.value || "dark";
+      localStorage.setItem(key, selected);
     });
   }
 }
