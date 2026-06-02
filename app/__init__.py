@@ -74,6 +74,17 @@ def register_template_context(app):
 
         return {"git_version": git_version()}
 
+    @app.context_processor
+    def inject_profile_security():
+        from flask_login import current_user
+
+        if not current_user.is_authenticated:
+            return {}
+        from app.security.totp import generate_totp_secret, provisioning_uri
+
+        secret = generate_totp_secret()
+        return {"profile_mfa_setup": {"secret": secret, "uri": provisioning_uri(secret, current_user.email)}}
+
 
 def register_agent_api_logging(app):
     @app.before_request

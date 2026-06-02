@@ -14,6 +14,9 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(32), nullable=False, default="viewer", index=True)
     active = db.Column(db.Boolean, nullable=False, default=True)
+    mfa_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    mfa_secret = db.Column(db.String(64))
+    mfa_enabled_at = db.Column(db.DateTime)
     failed_login_count = db.Column(db.Integer, nullable=False, default=0)
     locked_until = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -28,4 +31,3 @@ class User(UserMixin, db.Model):
     @property
     def is_active(self):
         return self.active
-
