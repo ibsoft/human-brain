@@ -101,51 +101,71 @@
       <div class="modal-body">
         <div class="row g-4">
           <div class="col-lg-6">
-            <h2>Change Password</h2>
-            <form method="post" action="{{ url_for('auth.change_password') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <label class="form-label">Current password</label>
-              <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
-              <label class="form-label">New password</label>
-              <input class="form-control mb-3" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
-              <label class="form-label">Confirm new password</label>
-              <input class="form-control mb-3" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
-              <button class="btn btn-primary"><i class="fa-solid fa-key"></i> Update Password</button>
-            </form>
+            <div class="profile-security-card">
+              <div class="security-card-heading">
+                <i class="fa-solid fa-key"></i>
+                <div>
+                  <h2>Change Password</h2>
+                  <span>Update the password used for web login.</span>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('auth.change_password') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="form-label">Current password</label>
+                <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
+                <label class="form-label">New password</label>
+                <input class="form-control mb-3" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
+                <label class="form-label">Confirm new password</label>
+                <input class="form-control mb-3" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+                <button class="btn btn-primary"><i class="fa-solid fa-key"></i> Update Password</button>
+              </form>
+            </div>
           </div>
           <div class="col-lg-6">
-            <h2>Multi-Factor Authentication</h2>
-            {% if current_user.mfa_enabled %}
-            <div class="security-status enabled mb-3"><i class="fa-solid fa-shield-halved"></i><span>MFA is enabled for this account.</span></div>
-            <form method="post" action="{{ url_for('auth.disable_mfa') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <label class="form-label">Current password</label>
-              <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
-              <label class="form-label">Authenticator code</label>
-              <input class="form-control mb-3" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
-              <button class="btn btn-outline-danger"><i class="fa-solid fa-shield-virus"></i> Disable MFA</button>
-            </form>
-            {% else %}
-            <div class="security-status mb-3"><i class="fa-solid fa-shield"></i><span>MFA is not enabled.</span></div>
-            <div id="mfaQrCode" class="mfa-qr-box mb-3" data-qr-uri="{{ profile_mfa_setup.uri }}">
-              <div class="text-secondary small">QR code loading...</div>
+            <div class="profile-security-card">
+              <div class="security-card-heading">
+                <i class="fa-solid fa-shield-halved"></i>
+                <div>
+                  <h2>Multi-Factor Authentication</h2>
+                  <span>Protect login with a 6-digit authenticator code.</span>
+                </div>
+              </div>
+              {% if current_user.mfa_enabled %}
+              <div class="security-status enabled mb-3"><i class="fa-solid fa-shield-halved"></i><span>MFA is enabled for this account.</span></div>
+              <form method="post" action="{{ url_for('auth.disable_mfa') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="form-label">Current password</label>
+                <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
+                <label class="form-label">Authenticator code</label>
+                <input class="form-control mb-3" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+                <button class="btn btn-outline-danger"><i class="fa-solid fa-shield-virus"></i> Disable MFA</button>
+              </form>
+              {% else %}
+              <div class="security-status mb-3"><i class="fa-solid fa-shield"></i><span>MFA is not enabled.</span></div>
+              <div class="mfa-setup-card mb-3">
+                <div id="mfaQrCode" class="mfa-qr-box" data-qr-uri="{{ profile_mfa_setup.uri }}">
+                  <div class="text-secondary small">QR code loading...</div>
+                </div>
+                <div class="mfa-setup-details">
+                  <div class="mfa-secret-box">
+                    <span>Secret</span>
+                    <code>{{ profile_mfa_setup.secret }}</code>
+                  </div>
+                  <label class="form-label mt-3">Authenticator URI</label>
+                  <textarea class="form-control" rows="3" readonly>{{ profile_mfa_setup.uri }}</textarea>
+                </div>
+              </div>
+              <form method="post" action="{{ url_for('auth.enable_mfa') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="mfa_secret" value="{{ profile_mfa_setup.secret }}">
+                <label class="form-label">Current password</label>
+                <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
+                <label class="form-label">Authenticator code</label>
+                <input class="form-control mb-3" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+                <button class="btn btn-primary"><i class="fa-solid fa-shield-halved"></i> Enable MFA</button>
+              </form>
+              {% endif %}
             </div>
-            <div class="mfa-secret-box mb-3">
-              <span>Secret</span>
-              <code>{{ profile_mfa_setup.secret }}</code>
-            </div>
-            <label class="form-label">Authenticator URI</label>
-            <textarea class="form-control mb-3" rows="3" readonly>{{ profile_mfa_setup.uri }}</textarea>
-            <form method="post" action="{{ url_for('auth.enable_mfa') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="mfa_secret" value="{{ profile_mfa_setup.secret }}">
-              <label class="form-label">Current password</label>
-              <input class="form-control mb-3" name="current_password" type="password" autocomplete="current-password" required>
-              <label class="form-label">Authenticator code</label>
-              <input class="form-control mb-3" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
-              <button class="btn btn-primary"><i class="fa-solid fa-shield-halved"></i> Enable MFA</button>
-            </form>
-            {% endif %}
           </div>
         </div>
       </div>
