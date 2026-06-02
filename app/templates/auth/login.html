@@ -11,10 +11,17 @@
   <form class="login-card" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="brand mb-4"><i class="fa-solid fa-brain"></i><span>Human-Brain</span></div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
     <label class="form-label">Email</label>
-    <input class="form-control mb-3" name="email" type="email" placeholder="admin@example.com" required autofocus>
+    <input class="form-control mb-3" name="email" type="email" placeholder="admin@example.com" value="{{ email or '' }}" required autofocus>
     <label class="form-label">Password</label>
-    <input class="form-control mb-4" name="password" type="password" placeholder="Your password" required>
+    <input class="form-control mb-3" name="password" type="password" placeholder="Your password" required>
+    <label class="form-label">MFA code</label>
+    <input class="form-control mb-4" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="{% if mfa_required %}Required{% else %}If enabled{% endif %}">
     <button class="btn btn-primary w-100">Login</button>
   </form>
 </body>

@@ -63,6 +63,24 @@ function initThemeMode(){
     });
   }
 }
+function initMfaQrCode(){
+  const target = document.getElementById("mfaQrCode");
+  if(!target) return;
+  const render = () => {
+    if(target.dataset.rendered === "1") return;
+    const uri = target.dataset.qrUri || "";
+    target.innerHTML = "";
+    if(!uri || typeof QRCode === "undefined"){
+      target.innerHTML = '<div class="text-secondary small">QR code unavailable. Use the secret or URI below.</div>';
+      return;
+    }
+    new QRCode(target,{text:uri,width:184,height:184,colorDark:"#06100c",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});
+    target.dataset.rendered = "1";
+  };
+  const modal = document.getElementById("profileSecurityModal");
+  if(modal) modal.addEventListener("shown.bs.modal",render);
+  render();
+}
 function initGlobalUx(){
   setTimeout(()=>document.querySelectorAll(".alert").forEach(alert=>alert.remove()),7000);
   document.querySelectorAll("form").forEach(form=>{
@@ -107,6 +125,7 @@ function initScrollMemory(){
   });
 }
 initThemeMode();
+initMfaQrCode();
 initScrollMemory();
 initGlobalUx();
 function initNavAccordionState(){

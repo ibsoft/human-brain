@@ -13,12 +13,54 @@ from app.services.correlation_service import CorrelationService
 from app.services.reranker_service import RerankerService
 from app.services.settings_service import SettingsService
 from app.services.vision_service import VisionRuntime, VisionService
+from app.security.totp import generate_totp_secret, totp_code
 from app.workers.tasks import consolidate_session_task
 
 
 def test_auth_login(client):
     res = client.post("/login", data={"email": "admin@example.com", "password": "password"}, follow_redirects=True)
     assert res.status_code == 200
+
+
+def test_profile_password_change_updates_current_user_login(client):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.post(
+        "/profile/password",
+        data={"current_password": "password", "new_password": "new-secure-password", "confirm_password": "new-secure-password"},
+        follow_redirects=True,
+    )
+    assert res.status_code == 200
+    client.post("/logout", follow_redirects=True)
+    old_login = client.post("/login", data={"email": "admin@example.com", "password": "password"}, follow_redirects=True)
+    assert b"Invalid credentials" in old_login.data
+    new_login = client.post("/login", data={"email": "admin@example.com", "password": "new-secure-password"}, follow_redirects=True)
+    assert new_login.status_code == 200
+
+
+def test_mfa_enabled_user_must_provide_valid_totp(client, app):
+    secret = generate_totp_secret()
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        user.mfa_enabled = True
+        user.mfa_secret = secret
+        db.session.commit()
+    missing = client.post("/login", data={"email": "admin@example.com", "password": "password"}, follow_redirects=True)
+    assert b"Enter a valid MFA code" in missing.data
+    valid = client.post(
+        "/login",
+        data={"email": "admin@example.com", "password": "password", "mfa_code": totp_code(secret)},
+        follow_redirects=True,
+    )
+    assert valid.status_code == 200
+    assert b"Dashboard" in valid.data
+
+
+def test_profile_modal_includes_mfa_qr_target(client):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/")
+    assert res.status_code == 200
+    assert b'id="mfaQrCode"' in res.data
+    assert b"otpauth://totp/" in res.data
 
 
 def test_first_run_setup_creates_admin(client, app):
