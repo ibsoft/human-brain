@@ -117,6 +117,20 @@ def change_password():
     return redirect(request.referrer or url_for("main.dashboard"))
 
 
+@auth_bp.post("/profile/theme")
+@login_required
+def update_theme():
+    theme = request.form.get("default_theme", "dark").strip().lower()
+    if theme not in {"dark", "light"}:
+        flash("Choose a valid theme.", "danger")
+        return redirect(request.referrer or url_for("main.dashboard"))
+    current_user.default_theme = theme
+    AuditService.log("auth.default_theme_updated", "user", current_user.id, target_type="user", target_id=current_user.id, metadata={"theme": theme})
+    db.session.commit()
+    flash("Default theme updated.", "success")
+    return redirect(request.referrer or url_for("main.dashboard"))
+
+
 @auth_bp.post("/profile/mfa/enable")
 @login_required
 @limiter.limit("5 per minute")
