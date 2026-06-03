@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import OperationalError
 
@@ -59,15 +59,42 @@ def login():
     if setup_required():
         return redirect(url_for("auth.setup"))
     if request.method == "POST":
+        pending_mfa_user_id = session.get("pending_mfa_user_id")
+        if pending_mfa_user_id and request.form.get("mfa_code") and not request.form.get("password"):
+            user = db.session.get(User, pending_mfa_user_id)
+            mfa_code = request.form.get("mfa_code", "")
+            if user and user.mfa_enabled and verify_totp(user.mfa_secret, mfa_code):
+                session.pop("pending_mfa_user_id", None)
+                session.pop("pending_mfa_email", None)
+                user.failed_login_count = 0
+                user.locked_until = None
+                db.session.commit()
+                login_user(user)
+                AuditService.log("auth.login", "user", user.id)
+                db.session.commit()
+                return redirect(url_for("main.dashboard"))
+            flash("Enter a valid MFA code.", "danger")
+            return render_template("auth/login.html", email=session.get("pending_mfa_email"), mfa_required=True)
+
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
         mfa_code = request.form.get("mfa_code", "")
+        session.pop("pending_mfa_user_id", None)
+        session.pop("pending_mfa_email", None)
         user = User.query.filter_by(email=email).first()
         if user and user.locked_until and user.locked_until > datetime.utcnow():
             flash("Account temporarily locked.", "danger")
             return render_template("auth/login.html")
         if user and user.check_password(password):
-            if user.mfa_enabled and not verify_totp(user.mfa_secret, mfa_code):
+            if user.mfa_enabled:
+                if mfa_code and verify_totp(user.mfa_secret, mfa_code):
+                    pass
+                else:
+                    session["pending_mfa_user_id"] = user.id
+                    session["pending_mfa_email"] = email
+                    flash("Enter a valid MFA code.", "danger")
+                    return render_template("auth/login.html", email=email, mfa_required=True)
+            if user.mfa_enabled and mfa_code and not verify_totp(user.mfa_secret, mfa_code):
                 flash("Enter a valid MFA code.", "danger")
                 return render_template("auth/login.html", email=email, mfa_required=True)
             user.failed_login_count = 0
@@ -82,6 +109,9 @@ def login():
             user.locked_until = lockout_until(user.failed_login_count)
             db.session.commit()
         flash("Invalid credentials.", "danger")
+    else:
+        session.pop("pending_mfa_user_id", None)
+        session.pop("pending_mfa_email", None)
     return render_template("auth/login.html")
 
 

@@ -8,6 +8,22 @@
   <link href="{{ url_for('static', filename='css/app.css') }}" rel="stylesheet">
 </head>
 <body class="login-body">
+  {% if mfa_required %}
+  <form class="login-card mfa-login-card" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="brand mb-4"><i class="fa-solid fa-shield-halved"></i><span>Human-Brain</span></div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+      <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    <div class="security-status enabled mb-3"><i class="fa-solid fa-lock"></i><span>MFA is enabled for {{ email }}.</span></div>
+    <label class="form-label">MFA code</label>
+    <input class="form-control mb-4" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code" required autofocus>
+    <button class="btn btn-primary w-100">Verify & Login</button>
+    <a class="btn btn-outline-info w-100 mt-3" href="{{ url_for('auth.login') }}">Use another account</a>
+  </form>
+  {% else %}
   <form class="login-card" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="brand mb-4"><i class="fa-solid fa-brain"></i><span>Human-Brain</span></div>
@@ -19,10 +35,9 @@
     <label class="form-label">Email</label>
     <input class="form-control mb-3" name="email" type="email" placeholder="admin@example.com" value="{{ email or '' }}" required autofocus>
     <label class="form-label">Password</label>
-    <input class="form-control mb-3" name="password" type="password" placeholder="Your password" required>
-    <label class="form-label">MFA code</label>
-    <input class="form-control mb-4" name="mfa_code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="{% if mfa_required %}Required{% else %}If enabled{% endif %}">
+    <input class="form-control mb-4" name="password" type="password" placeholder="Your password" required>
     <button class="btn btn-primary w-100">Login</button>
   </form>
+  {% endif %}
 </body>
 </html>

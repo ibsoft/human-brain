@@ -4,7 +4,13 @@
   <div class="row g-4">
     <div class="col-lg-8"><div class="camera-frame"><img src="{{ url_for('vision.vision_stream') }}" alt="Local vision stream"></div></div>
     <div class="col-lg-4">
-      <h2>Vision Status</h2><pre class="output">{{ status }}</pre>
+      <h2>Vision Status</h2>
+      <div class="vision-scene-card mb-3">
+        <span>Scene gate</span>
+        <strong id="visionSceneStatus">{{ status.last_scene.status if status.last_scene else 'waiting' }}</strong>
+        <p id="visionSceneSummary">{{ status.last_scene.summary if status.last_scene else 'No stable scene observed yet.' }}</p>
+      </div>
+      <pre class="output">{{ status }}</pre>
       <form class="row g-2 mb-3" method="post" action="{{ url_for('vision.vision_save_current_web') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="col-12"><select class="form-select" name="workspace_id" required>{% for workspace in workspaces %}<option value="{{ workspace.id }}">{{ workspace.name }}</option>{% else %}<option value="">No workspace</option>{% endfor %}</select></div>
@@ -26,6 +32,10 @@
       if(!response.ok) return;
       const status = await response.json();
       if(output) output.textContent = JSON.stringify(status, null, 2);
+      const sceneStatus = document.getElementById("visionSceneStatus");
+      const sceneSummary = document.getElementById("visionSceneSummary");
+      if(sceneStatus) sceneStatus.textContent = status.last_scene?.status || "waiting";
+      if(sceneSummary) sceneSummary.textContent = status.last_scene?.summary || "No stable scene observed yet.";
       hasTargets = button?.dataset.canSave === "true" && !status.vision_auto_save;
       if(button) button.disabled = !hasTargets || !(status.last_detection && status.last_detection.objects && status.last_detection.objects.length);
     }catch(error){}

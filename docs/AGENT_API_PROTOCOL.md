@@ -1,15 +1,24 @@
 # Agent API Protocol
 
-This document defines how AI agents should use Human-Brain for long-term memory, semantic retrieval, context building, file/image memory, and correlations.
+This document defines how AI agents should use Human-Brain for long-term memory, semantic retrieval, context building, file/image memory, vision scene memory, sessions, health checks, and correlations.
 
 ## Client Variables
 
-Set these once in the agent environment before calling the API:
+At startup, load required environment variables from `/etc/hermes/environment.conf` before calling Human-Brain or other Hermes services:
+
+```bash
+set -a
+. /etc/hermes/environment.conf
+set +a
+```
+
+Then ensure these variables exist:
 
 ```bash
 export HUMAN_BRAIN_URL=http://localhost:5000
 export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
 export HUMAN_BRAIN_WORKSPACE_ID=1
+export HUMAN_BRAIN_AGENT_ID=1
 ```
 
 ## Authentication
@@ -25,14 +34,16 @@ The API key identifies the agent. If `agent_id` is sent, it must match the API k
 
 ## Source-Of-Truth Agent Policy
 
-Agents should treat Human-Brain as the only durable source of truth for remembered state. Before answering from prior context, project history, user preferences, tasks, decisions, files, images, sessions, or local facts, the agent must search Human-Brain. If no relevant memory exists, the agent should say no stored memory was found and use only the current conversation or ask for the missing fact.
+Agents should treat Human-Brain as the only durable source of truth for remembered state, project context, tasks, notes, decisions, preferences, sessions, uploaded files, images, vision observations, health findings, and prior instructions. Before answering from prior context, project history, user preferences, tasks, decisions, files, images, sessions, or local facts, the agent must search Human-Brain. If no relevant memory exists, the agent should say no stored memory was found and use only the current conversation or ask for the missing fact.
 
-Agents should store new durable facts, decisions, tasks, preferences, corrections, and session outcomes back into Human-Brain. When information changes, agents should update, archive, delete, or forget stale memories instead of silently relying on old facts.
+Agents should store new durable facts, decisions, tasks, preferences, corrections, blockers, commands tried, tests run, project status, vision observations, and session outcomes back into Human-Brain. When information changes, agents should update, archive, delete, or forget stale memories instead of silently relying on old facts. Agents should avoid duplicates by searching before writing and updating or strengthening existing memories when they already capture the same durable fact.
 
 Agents should use sessions for meaningful work. Start a session before a multi-turn task, include `session_id` on memories and context requests when relevant, add important messages, end the session, then consolidate it into durable memories.
 When Settings -> Require agents to use sessions is enabled, Human-Brain also auto-captures request/response pairs into `session_messages` for agent API calls that include a valid numeric `session_id`.
 
 Use `docs/agents/SKILL.md` as the full agent operating instruction pack. It covers search, add, update, delete, forget, sessions, consolidation, workspaces, correlations, vision, assets, health checks, and answer rules.
+
+Operators can also download the Skill and Protocol files from Settings -> Agent System Prompt.
 
 ## Memory Search Protocol
 
@@ -267,7 +278,11 @@ Admins can enable agent API JSONL logging in Settings. Logs are rotated and visi
 
 Admins can enable scheduled duplicate consolidation in Settings. The duplicate consolidation worker finds exact or near-duplicate memories, writes one consolidated memory, and optionally archives the duplicate source memories.
 
+Admins can enable scheduled system health checks in Settings. Celery beat evaluates the configured hourly, daily, or weekly policy and records each due run. Health checks verify database reachability, runtime directory writability, FAISS index state, vector mappings, orphan vectors, and memories missing vectors. When automatic repair is enabled, the worker rebuilds affected FAISS workspace indexes. Operators can also queue check-only or run-and-repair jobs from the System Health page and inspect paged run history.
+
 Backup archives can be created, downloaded, restored, or deleted from the Backups page.
+
+Settings -> Agent System Prompt provides short and long copyable prompts plus downloadable Skill and Protocol files for configuring new agents.
 
 File memories:
 
@@ -284,6 +299,15 @@ Image memories:
 - store metadata such as width, height, color profile, dominant color
 - store a local visual vector/fingerprint
 - correlate with other images, files, notes, and text memories through tags, metadata, and vector similarity
+
+Vision scene memories:
+
+- are created from stable YOLO scene observations, not every frame
+- use count-based scene signatures such as `cup:2|person:1`
+- respect configured minimum confidence and stable-frame thresholds
+- avoid duplicate scene memories inside the configured auto-save interval
+- can attach the latest annotated snapshot when snapshot storage is enabled
+- include object labels, counts, confidence, timestamp, source, and storage reason
 
 ## Production Install With PostgreSQL, Redis, Celery
 
@@ -343,10 +367,12 @@ docker compose exec web python manage.py seed-demo-data
 
 Before answering a user:
 
-1. Call `/api/v1/memory/search`.
-2. Request vector details and correlations.
-3. Prefer confirmed, high-trust memories.
-4. Review correlated project/task/file/image memories.
-5. Use asset links when the answer references uploaded files or images.
-6. Call `/api/v1/context/build` for a final prompt-ready context block.
-7. Never inject high/secret memories unless policy permits it.
+1. Load `/etc/hermes/environment.conf` if not already loaded.
+2. Call `/api/v1/memory/search`.
+3. Request vector details and correlations.
+4. Prefer confirmed, high-trust memories.
+5. Review correlated project/task/file/image/vision memories.
+6. Use asset links when the answer references uploaded files or images.
+7. Call `/api/v1/context/build` for a final prompt-ready context block.
+8. Never inject high/secret memories unless policy permits it.
+9. Write back durable outcomes, corrections, tasks, and next steps before ending substantial work.
