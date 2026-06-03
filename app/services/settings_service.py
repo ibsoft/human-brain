@@ -93,6 +93,34 @@ DEFAULT_SETTINGS = {
         "value": {"enabled": True, "frequency": "daily", "time": "04:00", "auto_repair": True},
         "description": "Scheduled system health checks and automatic repair policy.",
     },
+    "memory_quality_policy": {
+        "value": {
+            "enabled": True,
+            "require_title": True,
+            "require_storage_reason": True,
+            "min_content_chars": 20,
+            "min_tags": 1,
+            "warn_below_score": 70,
+            "reject_low_quality": False,
+            "reject_below_score": 50,
+        },
+        "description": "Quality checks applied to agent memory writes.",
+    },
+    "agent_enforcement": {
+        "value": {
+            "enabled": True,
+            "require_search_before_answer": True,
+            "require_search_before_write": True,
+            "require_writeback_after_work": True,
+            "search_window_minutes": 30,
+            "strict_mode": False,
+        },
+        "description": "Agent operating policy for search-before-answer and write-back-after-work.",
+    },
+    "stale_memory_policy": {
+        "value": {"enabled": True, "stale_after_days": 90, "archive_after_days": 365},
+        "description": "Policy used to report stale active memories.",
+    },
     "agent_api_logging_enabled": {
         "value": True,
         "description": "Write agent API requests and responses to rotated JSONL logs.",

@@ -82,6 +82,7 @@ Response fields:
 - `correlations`: related memories when requested
 - `agent_evidence`: concise payload designed for direct agent reasoning
 - `timing.elapsed_ms`: end-to-end search time in milliseconds
+- `agent_policy`: enforcement guidance. Treat `search_before_answer=true` as a hard operating rule and write back durable outcomes after the work.
 
 Agents should use:
 
@@ -139,6 +140,29 @@ Recommended request:
 ```
 
 The context builder applies the Memory Firewall. High/secret memories are blocked when strict policy is active.
+
+## Memory Quality And Enforcement
+
+Human-Brain records agent searches and context builds as policy evidence. Before writing durable memory, search or build context in the same workspace. Memory writes return:
+
+- `quality.score`, `quality.level`, and `quality.warnings`
+- `agent_policy.search_before_write_ok`
+- `agent_policy.warnings`, including `search_before_write_missing` when a write happened without recent retrieval
+
+Operators can make low-quality writes or no-search writes strict in Settings. Even when strict mode is off, agents must treat these warnings as defects to correct: search, update existing memories when possible, and write one clear memory only when the information is materially new.
+
+Task memories may include `task_status`, `task_priority`, `task_owner`, `task_due_at`, `task_next_action`, `task_acceptance_criteria`, and `task_dependencies`. Human-Brain normalizes these into searchable workflow fields and tags.
+
+Project memories may include `project_status`, `project_goal`, `project_phase`, `project_next_actions`, `project_decisions`, `project_risks`, and `project_open_questions`.
+
+Quality and cleanup endpoints:
+
+```http
+GET /api/v1/memory/quality-report?workspace_id=1
+GET /api/v1/memory/stale?workspace_id=1&page=1&per_page=25
+```
+
+Use the quality report before cleanup work. It reports low-quality memories, duplicate groups, and stale active memories.
 
 ## File and Image Memories
 

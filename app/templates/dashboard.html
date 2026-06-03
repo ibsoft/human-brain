@@ -1,17 +1,6 @@
 {% extends "base.html" %}
 {% block page_title %}Dashboard{% endblock %}
 {% block content %}
-<section class="hero-panel mb-4">
-  <div>
-    <div class="eyebrow">Brain Activity</div>
-    <h2>Private memory control plane for AI agents</h2>
-    <p>Monitor context retrieval, sensitive-memory review, FAISS health, sessions, and agent knowledge from one local-first workspace.</p>
-  </div>
-  <div class="hero-actions">
-    <a class="btn btn-primary" href="{{ url_for('main.context_builder') }}"><i class="fa-solid fa-code-branch"></i> Build Context</a>
-    <a class="btn btn-outline-info" href="{{ url_for('main.memories') }}"><i class="fa-solid fa-plus"></i> Add Memory</a>
-  </div>
-</section>
 <section class="metric-grid">
   {% for label, value, icon in [('Memories',stats.memories,'fa-layer-group'),('Agents',stats.agents,'fa-robot'),('Workspaces',stats.workspaces,'fa-building'),('Sessions',stats.sessions,'fa-clock'),('Jobs',stats.jobs,'fa-gears'),('Sensitive',stats.sensitive,'fa-shield')] %}
   <div class="metric-card"><i class="fa-solid {{ icon }}"></i><span>{{ label }}</span><strong>{{ value }}</strong></div>

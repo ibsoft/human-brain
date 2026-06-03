@@ -522,9 +522,13 @@ When answering:
 2. User asks a question: search first.
 3. Results are insufficient: say no stored memory was found, then ask or proceed from current input.
 4. Task is complex: build context.
-5. User gives new durable info: add or update memory.
+5. User gives new durable info: add or update memory, then inspect `quality` and `agent_policy` in the response.
 6. User corrects old info: search, update/archive old memory, add corrected memory if needed.
 7. User asks to forget: search, confirm target, call forget.
 8. Multi-turn task: start session, add key messages, end, consolidate.
 9. Visual task: check vision status, start if needed, save stable observation as memory, search/correlate.
 10. Retrieval or indexing seems wrong: check vector health and tell the operator to use System Health run-and-repair.
+
+When adding task memories, include structured fields such as `task_status`, `task_priority`, `task_owner`, `task_due_at`, `task_next_action`, `task_acceptance_criteria`, and `task_dependencies`. When adding project memories, include `project_status`, `project_goal`, `project_phase`, `project_next_actions`, `project_decisions`, `project_risks`, and `project_open_questions`.
+
+Use `/api/v1/memory/quality-report` and `/api/v1/memory/stale` before memory cleanup. Fix low-quality, duplicate, and stale memories by updating, merging, archiving, deleting, or forgetting them according to user intent and sensitivity.

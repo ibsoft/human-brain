@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -1183,6 +1183,82 @@ def test_settings_downloads_agent_skill_and_protocol(client):
     assert protocol.status_code == 200
     assert protocol.headers["Content-Disposition"].startswith("attachment;")
     assert b"Agent API Protocol" in protocol.data
+
+
+def test_memory_add_returns_quality_and_search_policy_warning(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    res = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "No prior search", "content": "Durable deployment note without prior search.", "memory_type": "technical_notes", "tags": ["deploy"]},
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    payload = res.get_json()
+    assert payload["quality"]["score"] >= 70
+    assert "search_before_write_missing" in payload["agent_policy"]["warnings"]
+
+
+def test_search_before_write_policy_passes_after_search(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    search = client.post("/api/v1/memory/search", json={**base, "query": "deployment", "top_k": 3}, headers=api_headers)
+    assert search.status_code == 200
+    assert search.get_json()["agent_policy"]["search_before_answer"] is True
+    res = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "After search", "content": "Agent searched before storing this deployment result.", "memory_type": "technical_notes", "tags": ["deploy"], "storage_reason": "Write-back after retrieval."},
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    assert res.get_json()["agent_policy"]["search_before_write_ok"] is True
+
+
+def test_task_memory_workflow_fields_are_normalized(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post("/api/v1/memory/search", json={**base, "query": "task setup", "top_k": 1}, headers=api_headers)
+    res = client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Finish production setup",
+            "content": "Production setup needs final verification.",
+            "memory_type": "task",
+            "tags": ["setup"],
+            "task_status": "open",
+            "task_priority": "high",
+            "task_next_action": "Run the production preflight script.",
+            "storage_reason": "Track open production task.",
+        },
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    memory = res.get_json()["memory"]
+    assert "Human-Brain workflow fields" in memory["content"]
+    assert "Task status: open" in memory["content"]
+    assert "Next action: Run the production preflight script." in memory["content"]
+    assert "task" in memory["tags"]
+    assert "status-open" in memory["tags"]
+    assert "priority-high" in memory["tags"]
+
+
+def test_memory_quality_report_and_stale_endpoint(client, app, api_headers):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    res = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Old memory", "content": "This active memory should show as stale.", "memory_type": "long-term", "tags": ["stale"], "storage_reason": "Test stale report."},
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    memory_id = res.get_json()["memory"]["id"]
+    with app.app_context():
+        memory = db.session.get(Memory, memory_id)
+        memory.updated_at = datetime.utcnow() - timedelta(days=120)
+        db.session.commit()
+    report = client.get(f"/api/v1/memory/quality-report?workspace_id={base['workspace_id']}", headers=api_headers)
+    assert report.status_code == 200
+    assert report.get_json()["stale_count"] >= 1
+    stale = client.get(f"/api/v1/memory/stale?workspace_id={base['workspace_id']}", headers=api_headers)
+    assert stale.status_code == 200
+    assert any(item["id"] == memory_id for item in stale.get_json()["items"])
 
 
 def test_get_search_compact_mode(client, app, api_headers):

@@ -598,6 +598,29 @@ def settings():
                 "time": request.form.get("health_check_time", "04:00"),
                 "auto_repair": request.form.get("health_check_auto_repair") == "on",
             },
+            "memory_quality_policy": {
+                "enabled": request.form.get("memory_quality_enabled") == "on",
+                "require_title": request.form.get("memory_quality_require_title") == "on",
+                "require_storage_reason": request.form.get("memory_quality_require_storage_reason") == "on",
+                "min_content_chars": int_form("memory_quality_min_content_chars", 20),
+                "min_tags": int_form("memory_quality_min_tags", 1),
+                "warn_below_score": int_form("memory_quality_warn_below_score", 70),
+                "reject_low_quality": request.form.get("memory_quality_reject_low_quality") == "on",
+                "reject_below_score": int_form("memory_quality_reject_below_score", 50),
+            },
+            "agent_enforcement": {
+                "enabled": request.form.get("agent_enforcement_enabled") == "on",
+                "require_search_before_answer": request.form.get("agent_require_search_before_answer") == "on",
+                "require_search_before_write": request.form.get("agent_require_search_before_write") == "on",
+                "require_writeback_after_work": request.form.get("agent_require_writeback_after_work") == "on",
+                "search_window_minutes": int_form("agent_search_window_minutes", 30),
+                "strict_mode": request.form.get("agent_enforcement_strict_mode") == "on",
+            },
+            "stale_memory_policy": {
+                "enabled": request.form.get("stale_memory_enabled") == "on",
+                "stale_after_days": int_form("stale_memory_after_days", 90),
+                "archive_after_days": int_form("stale_memory_archive_after_days", 365),
+            },
             "agent_api_logging_enabled": request.form.get("agent_api_logging_enabled") == "on",
             "agent_api_log_level": request.form.get("agent_api_log_level", "info").strip(),
             "agent_api_log_max_mb": int_form("agent_api_log_max_mb", 10),
@@ -642,7 +665,8 @@ def settings():
             "Use Human-Brain as your only persistent memory and operating context. Store and retrieve every durable fact, "
             "project detail, task, decision, note, preference, correction, session summary, security finding, and vision observation "
             f"through Human-Brain at {base_url}. At startup, load required environment variables from /etc/hermes/environment.conf before calling Human-Brain. "
-            "Search it before meaningful work, follow its retrieved instructions unless the user overrides them, and write back important outcomes, next steps, and corrections. "
+            "Search it before meaningful work, follow retrieved instructions unless the user overrides them, and write back important outcomes, next steps, and corrections. "
+            "Inspect `agent_policy` and `quality` on memory API responses, fix warnings, avoid duplicates, and use structured task/project fields when writing workflow memories. "
             "Do not rely on any other long-term memory."
         ),
         "long": (
@@ -670,12 +694,18 @@ def settings():
             "14. For security-sensitive content, mark sensitivity accurately. Do not reveal secrets or high-sensitivity memories unless the user explicitly authorizes that use.\n"
             "15. For vision, store useful scene observations only when meaningful: stable changes, objects, counts, confidence, timestamp, and optional snapshot asset. Avoid duplicate scene memories.\n"
             "16. Avoid duplicates. Search before writing when practical, update or strengthen an existing memory if it already captures the same durable fact, and create a new memory only when the information is materially new.\n\n"
+            "Memory quality and enforcement:\n"
+            "17. Treat `agent_policy.search_before_answer`, `agent_policy.write_back_after_work`, and `agent_policy.search_before_write_ok` as operating requirements. If a response warns `search_before_write_missing`, search or build context and then update/write the memory correctly.\n"
+            "18. Inspect `quality.score`, `quality.level`, and `quality.warnings` after memory writes. Fix low-quality memories by adding clear title, tags, durable content, storage_reason, and structured workflow fields.\n"
+            "19. For task memories, send `task_status`, `task_priority`, `task_owner`, `task_due_at`, `task_next_action`, `task_acceptance_criteria`, and `task_dependencies` when known.\n"
+            "20. For project memories, send `project_status`, `project_goal`, `project_phase`, `project_next_actions`, `project_decisions`, `project_risks`, and `project_open_questions` when known.\n"
+            "21. Before cleanup work, call `/api/v1/memory/quality-report` and `/api/v1/memory/stale` for the workspace. Fix duplicate, stale, weak, contradicted, or outdated memories by updating, merging, archiving, deleting, or forgetting according to user intent.\n\n"
             "After work:\n"
-            "17. At the end of substantial work, write a final session/project memory with: what was requested, what changed, files or systems touched, commands/tests run, results, decisions made, unresolved risks, and next steps.\n"
-            "18. If work failed or was blocked, store the blocker, evidence, attempts made, and the exact condition needed to continue.\n"
-            "19. If the user corrects you, store the correction and apply it immediately.\n"
-            "20. If a memory becomes outdated, archive/update it rather than leaving contradictory active memories.\n"
-            "21. Always prefer accurate, concise, auditable memory over vague summaries. Human-Brain should let any future agent continue the work without relying on this chat."
+            "22. At the end of substantial work, write a final session/project memory with: what was requested, what changed, files or systems touched, commands/tests run, results, decisions made, unresolved risks, and next steps.\n"
+            "23. If work failed or was blocked, store the blocker, evidence, attempts made, and the exact condition needed to continue.\n"
+            "24. If the user corrects you, store the correction and apply it immediately.\n"
+            "25. If a memory becomes outdated, archive/update it rather than leaving contradictory active memories.\n"
+            "26. Always prefer accurate, concise, auditable memory over vague summaries. Human-Brain should let any future agent continue the work without relying on this chat."
         ),
     }
     return render_template(
