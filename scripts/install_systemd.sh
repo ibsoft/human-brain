@@ -69,6 +69,16 @@ run() {
   "$@"
 }
 
+python_cmd() {
+  if command -v python3.11 >/dev/null 2>&1; then
+    printf '%s\n' "python3.11"
+  elif command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' "python3"
+  else
+    die "python3 was not found"
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --service-name)
@@ -155,8 +165,9 @@ sudo -v -p "$(printf '%b' "${bold}sudo password for %u:${reset} ")" || die "sudo
 
 if [[ "$SKIP_DEPS" -eq 0 ]]; then
   log "Preparing Python environment"
+  PYTHON_CMD="$(python_cmd)"
   if [[ ! -x "$APP_DIR/.venv/bin/python" ]]; then
-    run python3.11 -m venv "$APP_DIR/.venv"
+    run "$PYTHON_CMD" -m venv "$APP_DIR/.venv"
   fi
   run "$APP_DIR/.venv/bin/python" -m pip install --upgrade pip
   run "$APP_DIR/.venv/bin/python" -m pip install -r "$APP_DIR/requirements-core.txt"

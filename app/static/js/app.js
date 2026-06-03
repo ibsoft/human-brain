@@ -209,6 +209,7 @@ function initGlobalButtons(){
   initMemoryInputModes();
   initBulkMemoryActions();
   initConfirmActionForms();
+  initCopyButtons();
 }
 function openConfirmAction({title="Confirm action", message="This action cannot be undone.", confirmText="Delete", confirmClass="btn-danger", onConfirm}){
   const modalEl = document.getElementById("confirmActionModal");
@@ -340,16 +341,57 @@ async function copyJsonOutput(outputId, buttonId){
   const target = document.getElementById(outputId);
   const text = target?.textContent || "";
   if(!text.trim()) return;
+  await copyTextWithButtonState(text, button);
+}
+async function copyTextWithButtonState(text, button){
+  if(!text) return false;
+  const original = button?.innerHTML;
   try{
-    await navigator.clipboard.writeText(text);
+    await copyTextToClipboard(text);
     if(button){
-      const original = button.innerHTML;
       button.innerHTML = '<i class="fa-solid fa-check"></i> Copied';
       setTimeout(()=>{button.innerHTML = original;},1400);
     }
+    return true;
   }catch(error){
-    if(button) button.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Copy failed';
+    if(button){
+      button.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Copy failed';
+      setTimeout(()=>{button.innerHTML = original;},1800);
+    }
+    return false;
   }
+}
+async function copyTextToClipboard(text){
+  if(navigator.clipboard?.writeText && window.isSecureContext){
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly","");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try{
+    if(!document.execCommand("copy")) throw new Error("execCommand copy failed");
+  }finally{
+    textarea.remove();
+  }
+}
+function initCopyButtons(){
+  document.querySelectorAll("[data-copy-target]").forEach(button=>{
+    if(button.dataset.copyReady === "1") return;
+    button.dataset.copyReady = "1";
+    button.addEventListener("click",async ()=>{
+      const target = document.getElementById(button.dataset.copyTarget);
+      if(!target) return;
+      const text = "value" in target ? target.value : target.textContent;
+      await copyTextWithButtonState(text || "", button);
+    });
+  });
 }
 function initMemoryInputModes(){
   const modes = document.querySelectorAll('input[name="memory_input_mode"]');
