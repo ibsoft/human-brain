@@ -94,6 +94,26 @@ def consolidate_duplicate_memories_task():
     return {"status": "completed", "workspaces": result}
 
 
+@celery.task(name="scheduled_health_check")
+def scheduled_health_check_task():
+    from app.services.health_service import HealthCheckService
+
+    service = HealthCheckService()
+    should_run, reason = service.should_run_scheduled()
+    if not should_run:
+        return {"status": "skipped", "reason": reason}
+    run = service.run(trigger="scheduled")
+    return {"status": run.status, "severity": run.severity, "run_id": run.id, "summary": run.summary}
+
+
+@celery.task(name="run_health_check")
+def run_health_check_task(auto_repair=True):
+    from app.services.health_service import HealthCheckService
+
+    run = HealthCheckService().run(trigger="manual", auto_repair=auto_repair)
+    return {"status": run.status, "severity": run.severity, "run_id": run.id, "summary": run.summary}
+
+
 @celery.task(name="calculate_trust_scores")
 def calculate_trust_scores_task():
     for memory in Memory.query.filter(Memory.deleted_at.is_(None)).all():

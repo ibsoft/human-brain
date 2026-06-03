@@ -81,6 +81,10 @@ DEFAULT_SETTINGS = {
         "value": {"enabled": False, "frequency": "daily", "time": "03:00", "min_group_size": 2, "archive_duplicates": True},
         "description": "Scheduled duplicate memory consolidation policy.",
     },
+    "health_check_schedule": {
+        "value": {"enabled": True, "frequency": "daily", "time": "04:00", "auto_repair": True},
+        "description": "Scheduled system health checks and automatic repair policy.",
+    },
     "agent_api_logging_enabled": {
         "value": True,
         "description": "Write agent API requests and responses to rotated JSONL logs.",

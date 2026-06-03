@@ -5,7 +5,7 @@ from flask import Blueprint, abort, current_app, flash, jsonify, redirect, rende
 from flask_login import current_user, login_required
 
 from app.extensions import db
-from app.models import Agent, ApiKey, AuditLog, ConsolidationJob, Memory, MemoryAsset, MemoryCorrelation, Session, Workspace, WorkspaceAgent
+from app.models import Agent, ApiKey, AuditLog, ConsolidationJob, HealthCheckRun, Memory, MemoryAsset, MemoryCorrelation, Session, Workspace, WorkspaceAgent
 from app.security.rbac import minimum_role, role_required
 from app.services.admin_service import AdminService
 from app.services.backup_service import BackupService
@@ -589,6 +589,12 @@ def settings():
                 "min_group_size": int_form("duplicate_min_group_size", 2),
                 "archive_duplicates": request.form.get("duplicate_archive_duplicates") == "on",
             },
+            "health_check_schedule": {
+                "enabled": request.form.get("health_check_schedule_enabled") == "on",
+                "frequency": request.form.get("health_check_frequency", "daily"),
+                "time": request.form.get("health_check_time", "04:00"),
+                "auto_repair": request.form.get("health_check_auto_repair") == "on",
+            },
             "agent_api_logging_enabled": request.form.get("agent_api_logging_enabled") == "on",
             "agent_api_log_level": request.form.get("agent_api_log_level", "info").strip(),
             "agent_api_log_max_mb": int_form("agent_api_log_max_mb", 10),
@@ -764,7 +770,36 @@ def export_agent_brain(agent_id):
 @main_bp.route("/system-health")
 @login_required
 def system_health():
-    return render_template("system_health.html", health=AdminService.health(), vision=VisionService().status())
+    page = request.args.get("page", 1, type=int)
+    pagination = HealthCheckRun.query.order_by(HealthCheckRun.started_at.desc()).paginate(page=page, per_page=15, error_out=False)
+    latest_run = HealthCheckRun.query.order_by(HealthCheckRun.started_at.desc()).first()
+    return render_template(
+        "system_health.html",
+        health=AdminService.health(),
+        vision=VisionService().status(),
+        health_runs=pagination.items,
+        pagination=pagination,
+        latest_run=latest_run,
+        health_settings=SettingsService.get("health_check_schedule", {}),
+    )
+
+
+@main_bp.post("/system-health/run")
+@login_required
+@minimum_role("operator")
+def run_health_check():
+    from app.workers.tasks import run_health_check_task
+
+    auto_repair = request.form.get("auto_repair") == "on"
+    try:
+        result = run_health_check_task.delay(auto_repair=auto_repair)
+        flash(f"Health check queued: {result.id}", "success")
+    except Exception as exc:
+        from app.services.health_service import HealthCheckService
+
+        run = HealthCheckService().run(trigger="manual", auto_repair=auto_repair)
+        flash(f"Celery queue unavailable, ran health check inline: {run.summary}. Queue error: {exc}", "warning")
+    return redirect(url_for("main.system_health"))
 
 
 @main_bp.post("/memories/<int:memory_id>/confirm")
