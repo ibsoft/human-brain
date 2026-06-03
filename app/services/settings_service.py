@@ -51,6 +51,14 @@ DEFAULT_SETTINGS = {
         "value": 30,
         "description": "Minimum seconds between automatic vision memory saves for the same detected object set.",
     },
+    "vision_auto_save_min_confidence": {
+        "value": 0.55,
+        "description": "Minimum object confidence used when deciding whether a vision scene should be auto-saved.",
+    },
+    "vision_scene_stable_frames": {
+        "value": 3,
+        "description": "Number of consecutive matching frames required before auto-saving a vision scene.",
+    },
     "retention_days": {
         "value": 365,
         "description": "Default memory retention window for expiration jobs.",

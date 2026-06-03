@@ -57,6 +57,23 @@ def test_mfa_enabled_user_must_provide_valid_totp(client, app):
     assert b"Dashboard" in valid.data
 
 
+def test_login_hides_mfa_until_password_is_valid(client, app):
+    res = client.get("/login")
+    assert res.status_code == 200
+    assert b'name="mfa_code"' not in res.data
+    secret = generate_totp_secret()
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        user.mfa_enabled = True
+        user.mfa_secret = secret
+        db.session.commit()
+    mfa = client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    assert mfa.status_code == 200
+    assert b"mfa-login-card" in mfa.data
+    assert b'name="mfa_code"' in mfa.data
+    assert b'name="password"' not in mfa.data
+
+
 def test_profile_modal_includes_mfa_qr_target(client):
     client.post("/login", data={"email": "admin@example.com", "password": "password"})
     res = client.get("/")
@@ -862,7 +879,7 @@ def test_vision_save_current_detection_attaches_snapshot_asset(client, app, api_
 
 def test_vision_auto_save_uses_interval_for_same_detection(client, app):
     with app.app_context():
-        SettingsService.update({"vision_auto_save": True, "snapshot_storage_enabled": True, "vision_auto_save_interval_seconds": 30})
+        SettingsService.update({"vision_auto_save": True, "snapshot_storage_enabled": True, "vision_auto_save_interval_seconds": 30, "vision_scene_stable_frames": 1})
         VisionRuntime.last_detection = {
             "timestamp": "2026-05-31T20:00:00",
             "objects": [{"label": "keyboard", "confidence": 0.88}],
@@ -873,10 +890,25 @@ def test_vision_auto_save_uses_interval_for_same_detection(client, app):
         service = VisionService()
         service._maybe_auto_save_current_detection(b"snapshot-bytes")
         service._maybe_auto_save_current_detection(b"snapshot-bytes")
-        memories = Memory.query.filter(Memory.title.like("Vision detected keyboard%")).all()
+        memories = Memory.query.filter(Memory.title.like("Vision scene:%keyboard%")).all()
         assert len(memories) == 1
         asset = MemoryAsset.query.filter_by(memory_id=memories[0].id).one()
         Path(asset.stored_path).unlink(missing_ok=True)
+
+
+def test_vision_scene_duplicate_guard_reuses_recent_memory(app):
+    with app.app_context():
+        SettingsService.update({"snapshot_storage_enabled": False, "vision_auto_save_interval_seconds": 60})
+        VisionRuntime.last_detection = {
+            "timestamp": "2026-05-31T20:00:00",
+            "objects": [{"label": "cup", "confidence": 0.91}, {"label": "cup", "confidence": 0.82}],
+        }
+        service = VisionService()
+        first_event, first_memory = service.save_current_detection(app.config["TEST_WORKSPACE_ID"], app.config["TEST_AGENT_ID"], source="manual")
+        second_event, second_memory = service.save_current_detection(app.config["TEST_WORKSPACE_ID"], app.config["TEST_AGENT_ID"], source="manual")
+        assert second_event.id == first_event.id
+        assert second_memory.id == first_memory.id
+        assert Memory.query.filter(Memory.title.like("Vision scene:%")).count() == 1
 
 
 def test_vision_status_includes_yolo_device(client, app):
@@ -1120,6 +1152,37 @@ def test_system_health_page_shows_run_history(client, app):
     assert b"Run History" in res.data
     assert b"Run & Repair" in res.data
     assert b"Checks:" in res.data
+
+
+def test_settings_shows_agent_system_prompts(client, app):
+    with app.app_context():
+        SettingsService.ensure_defaults()
+        SettingsService.update({"public_base_url": "https://brain.example.test"})
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/settings")
+    assert res.status_code == 200
+    assert b"Agent System Prompt" in res.data
+    assert b"Use Human-Brain as your only persistent memory" in res.data
+    assert b"task ledger" in res.data
+    assert b"/etc/hermes/environment.conf" in res.data
+    assert b"For vision" in res.data
+    assert b"Avoid duplicates" in res.data
+    assert b"https://brain.example.test" in res.data
+    assert b"human-brain-agent-skill.md" not in res.data
+    assert b"/settings/agent-skill/download" in res.data
+    assert b"/settings/agent-protocol/download" in res.data
+
+
+def test_settings_downloads_agent_skill_and_protocol(client):
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    skill = client.get("/settings/agent-skill/download")
+    assert skill.status_code == 200
+    assert skill.headers["Content-Disposition"].startswith("attachment;")
+    assert b"Human-Brain Agent Skill" in skill.data
+    protocol = client.get("/settings/agent-protocol/download")
+    assert protocol.status_code == 200
+    assert protocol.headers["Content-Disposition"].startswith("attachment;")
+    assert b"Agent API Protocol" in protocol.data
 
 
 def test_get_search_compact_mode(client, app, api_headers):

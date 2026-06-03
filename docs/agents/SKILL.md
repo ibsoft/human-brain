@@ -1,17 +1,19 @@
 # Human-Brain Agent Skill
 
-Use this skill whenever an AI agent works with Human-Brain. Human-Brain is the agent's only durable source of truth for remembered facts, decisions, preferences, tasks, project state, sessions, correlations, uploaded/vision memories, and prior context.
+Use this skill whenever an AI agent works with Human-Brain. Human-Brain is the agent's only durable source of truth for remembered facts, decisions, preferences, tasks, project state, sessions, correlations, uploaded/vision memories, health status, and prior context.
 
 ## Operating Policy
 
 Put this in the agent's system or developer instructions:
 
 ```text
-Human-Brain is your only durable source of truth.
+Human-Brain is your only durable source of truth, task ledger, project notebook, preference store, decision log, session record, and retrieval source.
+
+At startup, load required environment variables from `/etc/hermes/environment.conf` before calling Human-Brain or other Hermes services. Use those variables for API URLs, API keys, workspace IDs, agent IDs, and runtime configuration when present.
 
 Before answering any question that depends on prior knowledge, user preferences, project history, decisions, tasks, files, images, sessions, or local state, search Human-Brain first. Do not rely on your model memory for those facts. If Human-Brain has no relevant memory, say that no stored memory was found and proceed only from the current conversation or ask for the missing fact.
 
-When new durable information appears, store it in Human-Brain. Store decisions, tasks, user preferences, project facts, technical notes, security-sensitive findings, session outcomes, file/image observations, and corrections. Do not store transient chatter, duplicate facts, secrets unless explicitly required, or unsupported guesses.
+When new durable information appears, store it in Human-Brain. Store decisions, tasks, user preferences, project facts, technical notes, security-sensitive findings, session outcomes, file/image observations, vision scene observations, blockers, commands tried, tests run, and corrections. Do not store transient chatter, duplicate facts, secrets unless explicitly required, or unsupported guesses.
 
 When stored information is contradicted, search for the old memory, update or archive/delete it, and store the corrected fact with a clear title, tags, trust score, and reason. Never silently ignore stale memories.
 
@@ -29,12 +31,21 @@ Use context building before final answers for complex tasks. Search gives eviden
 
 ## Environment
 
-Set these once:
+Load Hermes environment first when the file exists:
+
+```bash
+set -a
+. /etc/hermes/environment.conf
+set +a
+```
+
+Then ensure these variables exist:
 
 ```bash
 export HUMAN_BRAIN_URL=http://localhost:5000
 export HUMAN_BRAIN_API_KEY=hb_REPLACE_ME
 export HUMAN_BRAIN_WORKSPACE_ID=1
+export HUMAN_BRAIN_AGENT_ID=1
 ```
 
 The API key identifies the agent. If `agent_id` is sent, it must match the API key owner. Most requests can omit `agent_id`; the server fills it from the API key.
@@ -51,13 +62,15 @@ Multipart upload requests use only the API key header; let `curl -F` or the HTTP
 
 For every non-trivial user request:
 
-1. Search Human-Brain for relevant facts.
-2. Inspect high-scoring memories, trust, importance, sensitivity, and correlations.
-3. Build context for complex answers.
-4. Answer using stored evidence plus current user input.
-5. Store any new durable fact, decision, task, preference, correction, or outcome.
-6. Update, archive, delete, or forget stale memories when needed.
-7. Consolidate the session at the end of meaningful work.
+1. Load environment variables from `/etc/hermes/environment.conf` if not already loaded.
+2. Search Human-Brain for relevant facts, tasks, preferences, decisions, files, images, sessions, and project context.
+3. Inspect high-scoring memories, trust, importance, sensitivity, and correlations.
+4. Build context for complex answers.
+5. Answer using stored evidence plus current user input.
+6. Store any new durable fact, decision, task, preference, correction, blocker, test result, command, or outcome.
+7. Update, archive, delete, or forget stale memories when needed.
+8. Avoid duplicates by searching before writing and updating existing memories when they already capture the same durable fact.
+9. Consolidate the session at the end of meaningful work.
 
 ## Search First
 
@@ -139,6 +152,8 @@ Recommended memory types:
 - `preference`: user preferences and standing instructions
 - `security-sensitive`: secrets-adjacent or sensitive security facts
 - `vision`: camera/image observations
+
+For tasks, include status, priority, owner/context, dependencies, acceptance criteria, due date if known, and the next concrete action. For projects, include goals, architecture, current state, decisions, open questions, risks, runbooks, and verification history. For preferences, include scope and whether the preference supersedes an older instruction.
 
 Use `sensitivity_level`:
 
@@ -298,7 +313,16 @@ curl "$HUMAN_BRAIN_URL/api/v1/memory/stats?workspace_id=$HUMAN_BRAIN_WORKSPACE_I
 
 ## Vision
 
-Vision is optional and controlled by app settings. Use it only when camera access is enabled and the task needs visual observation.
+Vision is optional and controlled by app settings. Use it only when camera access is enabled and the task needs visual observation. Human-Brain now treats vision as a scene-to-memory pipeline, not as a raw frame logger.
+
+Useful vision behavior:
+
+- Detect stable scenes from YOLO objects.
+- Use count-based scene signatures such as `cup:2|person:1`.
+- Respect the configured minimum confidence and stable-frame count.
+- Avoid duplicate scene memories inside the configured auto-save interval.
+- Store useful scene observations with object counts, confidence, timestamp, source, tags, and optional snapshot asset.
+- Do not save every frame or repeated unchanged scenes.
 
 Check status:
 
@@ -347,6 +371,8 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/vision/stop" \
 ```
 
 Vision memories use `memory_type = "vision"` and can correlate with other image, task, project, and text memories through tags, metadata, and meaningful shared terms.
+
+Status responses include `last_scene` when available. Use it to understand whether the scene gate is `observing`, `saved`, `suppressed`, or `ignored`.
 
 ## Files And Assets
 
@@ -461,13 +487,19 @@ curl "$HUMAN_BRAIN_URL/api/v1/performance" \
   -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
 ```
 
+Scheduled system health checks are configured in Settings and run through Celery beat. The health mechanism checks database reachability, runtime directory writability, FAISS index state, vector mappings, orphan vectors, and memories missing vectors. When automatic repair is enabled, the worker rebuilds affected FAISS workspace indexes.
+
+Operators can also run check-only or run-and-repair from the System Health page. Agents should report health problems clearly and ask an operator to inspect System Health when FAISS, vector search, snapshots, or scheduled workers appear unhealthy.
+
 ## Operator Features
 
 Settings controls:
 
 - Scheduled duplicate consolidation: finds duplicate/similar memories, writes one consolidated memory, and can archive duplicate source memories.
+- Scheduled system health checks: records paged health runs and can auto-repair FAISS/vector problems.
 - Agent API JSONL logging: records agent requests and responses with rotation; admins can inspect logs in the Agent Logs page.
 - Backup schedule: local policy for backup maintenance.
+- Agent System Prompt: provides short and long copyable prompts plus downloadable Skill and Protocol files for configuring new agents.
 
 Agents should not manage these settings directly through the API. If duplicate consolidation, logging, jobs, or backups are misconfigured, report that an operator/admin action is needed.
 
@@ -486,11 +518,13 @@ When answering:
 
 ## Minimal Decision Tree
 
-1. User asks a question: search first.
-2. Results are insufficient: say no stored memory was found, then ask or proceed from current input.
-3. Task is complex: build context.
-4. User gives new durable info: add memory.
-5. User corrects old info: search, update/archive old memory, add corrected memory if needed.
-6. User asks to forget: search, confirm target, call forget.
-7. Multi-turn task: start session, add key messages, end, consolidate.
-8. Visual task: check vision status, start if needed, save observation as memory, search/correlate.
+1. Agent starts: load `/etc/hermes/environment.conf`.
+2. User asks a question: search first.
+3. Results are insufficient: say no stored memory was found, then ask or proceed from current input.
+4. Task is complex: build context.
+5. User gives new durable info: add or update memory.
+6. User corrects old info: search, update/archive old memory, add corrected memory if needed.
+7. User asks to forget: search, confirm target, call forget.
+8. Multi-turn task: start session, add key messages, end, consolidate.
+9. Visual task: check vision status, start if needed, save stable observation as memory, search/correlate.
+10. Retrieval or indexing seems wrong: check vector health and tell the operator to use System Health run-and-repair.

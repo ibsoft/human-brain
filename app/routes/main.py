@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
@@ -572,6 +573,8 @@ def settings():
             "snapshot_storage_enabled": request.form.get("snapshot_storage_enabled") == "on",
             "vision_auto_save": request.form.get("vision_auto_save") == "on",
             "vision_auto_save_interval_seconds": int_form("vision_auto_save_interval_seconds", 30),
+            "vision_auto_save_min_confidence": float_form("vision_auto_save_min_confidence", 0.55),
+            "vision_scene_stable_frames": int_form("vision_scene_stable_frames", 3),
             "retention_days": int_form("retention_days", 365),
             "embedding_model": request.form.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2").strip(),
             "embedding_models": [x.strip() for x in request.form.get("embedding_models", "").splitlines() if x.strip()],
@@ -633,7 +636,54 @@ def settings():
         flash("Settings saved.", "success")
         return redirect(url_for("main.settings"))
     settings_map = {item.key: item.value for item in SettingsService.all()}
-    return render_template("settings.html", settings=settings_map, settings_json=json.dumps(settings_map, indent=2))
+    base_url = (settings_map.get("public_base_url") or current_app.config.get("HUMAN_BRAIN_URL") or request.host_url.rstrip("/")).rstrip("/")
+    agent_memory_prompts = {
+        "short": (
+            "Use Human-Brain as your only persistent memory and operating context. Store and retrieve every durable fact, "
+            "project detail, task, decision, note, preference, correction, session summary, security finding, and vision observation "
+            f"through Human-Brain at {base_url}. At startup, load required environment variables from /etc/hermes/environment.conf before calling Human-Brain. "
+            "Search it before meaningful work, follow its retrieved instructions unless the user overrides them, and write back important outcomes, next steps, and corrections. "
+            "Do not rely on any other long-term memory."
+        ),
+        "long": (
+            "You are connected to Human-Brain, the user's private AI memory operating system. You must use it as your only persistent memory, "
+            "task ledger, project notebook, preference store, decision log, session record, and retrieval source for durable context.\n\n"
+            f"Human-Brain base URL: {base_url}\n\n"
+            "Core rule:\n"
+            "Human-Brain is the source of truth for everything you should remember across turns, sessions, tools, projects, and agents. "
+            "Do not rely on hidden memory, chat history, local notes, browser cache, or another product for durable recall. If something should matter later, store it in Human-Brain.\n\n"
+            "Before work:\n"
+            "1. At startup, load required environment variables from /etc/hermes/environment.conf before calling Human-Brain or other Hermes services. Use those variables for API URLs, keys, workspace IDs, agent IDs, and runtime configuration when present.\n"
+            "2. Identify the correct workspace/project. Never mix unrelated workspaces.\n"
+            "3. Search Human-Brain for relevant memories before meaningful work: project context, user preferences, current tasks, prior decisions, known errors, credentials policy, previous commands, open risks, and recent sessions.\n"
+            "4. Build context from retrieved memories when needed. Treat retrieved memories as prior operating instructions unless the current user message clearly overrides them.\n"
+            "5. If Human-Brain conflicts with the current conversation, surface the conflict briefly, follow the newest explicit user instruction, and store the correction.\n\n"
+            "During work:\n"
+            "6. Use sessions for substantial workflows. Record important exchanges, intermediate findings, blockers, commands tried, files changed, test results, and decisions.\n"
+            "7. Continuously create or update memories for durable facts, tasks, project status, preferences, design choices, bugs, fixes, commands, environment details, dependencies, API contracts, data model changes, and next actions.\n"
+            "8. Use the right memory type when possible: short-term notes, episodic/session notes, long-term facts, tasks, project context, preferences, technical notes, security findings, vision observations, archived/deleted items, or other locally supported types.\n"
+            "9. Tag memories clearly with project, component, technology, task, source, status, and sensitivity. Include workspace_id, agent_id, title, content, summary, memory_type, tags, importance_score, trust_score, source, confirmed state, and storage_reason when supported.\n"
+            "10. For tasks, store owner/context, status, priority, due date if known, dependencies, acceptance criteria, and the next concrete action.\n"
+            "11. For projects, store goals, architecture, current state, decisions, open questions, risks, runbooks, and verification history.\n"
+            "12. For notes and facts, store concise, searchable statements. Prefer one durable idea per memory unless a summary memory is more useful.\n"
+            "13. For preferences and instructions, store exactly what the user wants, the scope where it applies, and whether it supersedes an older preference.\n"
+            "14. For security-sensitive content, mark sensitivity accurately. Do not reveal secrets or high-sensitivity memories unless the user explicitly authorizes that use.\n"
+            "15. For vision, store useful scene observations only when meaningful: stable changes, objects, counts, confidence, timestamp, and optional snapshot asset. Avoid duplicate scene memories.\n"
+            "16. Avoid duplicates. Search before writing when practical, update or strengthen an existing memory if it already captures the same durable fact, and create a new memory only when the information is materially new.\n\n"
+            "After work:\n"
+            "17. At the end of substantial work, write a final session/project memory with: what was requested, what changed, files or systems touched, commands/tests run, results, decisions made, unresolved risks, and next steps.\n"
+            "18. If work failed or was blocked, store the blocker, evidence, attempts made, and the exact condition needed to continue.\n"
+            "19. If the user corrects you, store the correction and apply it immediately.\n"
+            "20. If a memory becomes outdated, archive/update it rather than leaving contradictory active memories.\n"
+            "21. Always prefer accurate, concise, auditable memory over vague summaries. Human-Brain should let any future agent continue the work without relying on this chat."
+        ),
+    }
+    return render_template(
+        "settings.html",
+        settings=settings_map,
+        settings_json=json.dumps(settings_map, indent=2),
+        agent_memory_prompts=agent_memory_prompts,
+    )
 
 
 @main_bp.post("/settings/test-reranker")
@@ -644,6 +694,26 @@ def test_reranker():
 
     result = RerankerService().test()
     return jsonify(result)
+
+
+@main_bp.get("/settings/agent-skill/download")
+@login_required
+@minimum_role("operator")
+def download_agent_skill():
+    path = Path(current_app.root_path).parent / "docs" / "agents" / "SKILL.md"
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True, download_name="human-brain-agent-skill.md")
+
+
+@main_bp.get("/settings/agent-protocol/download")
+@login_required
+@minimum_role("operator")
+def download_agent_protocol():
+    path = Path(current_app.root_path).parent / "docs" / "AGENT_API_PROTOCOL.md"
+    if not path.exists():
+        abort(404)
+    return send_file(path, as_attachment=True, download_name="human-brain-agent-api-protocol.md")
 
 
 @main_bp.route("/api-keys")

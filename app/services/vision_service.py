@@ -1,11 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import time
 
 from flask import current_app
 
 from app.extensions import db
-from app.models import Agent, MemoryAsset, VisionEvent, Workspace
+from app.models import Agent, Memory, MemoryAsset, VisionEvent, Workspace
 from app.services.asset_vector_service import AssetVectorService
 from app.services.memory_service import MemoryService, asset_url
 from app.services.settings_service import SettingsService
@@ -21,6 +21,9 @@ class VisionRuntime:
     last_snapshot = None
     last_auto_saved_signature = None
     last_auto_saved_at = None
+    current_scene_signature = None
+    current_scene_seen = 0
+    last_scene_status = None
 
 
 DEFAULT_YOLO_MODEL = "models/yolov8n.pt"
@@ -62,11 +65,14 @@ class VisionService:
             "snapshot_storage_enabled": SettingsService.get("snapshot_storage_enabled", False),
             "vision_auto_save": SettingsService.get("vision_auto_save", False),
             "vision_auto_save_interval_seconds": SettingsService.get("vision_auto_save_interval_seconds", 30),
+            "vision_auto_save_min_confidence": SettingsService.get("vision_auto_save_min_confidence", 0.55),
+            "vision_scene_stable_frames": SettingsService.get("vision_scene_stable_frames", 3),
             "backend": SettingsService.get("vision_backend", "ultralytics"),
             "active_model": SettingsService.get("yolo_model", DEFAULT_YOLO_MODEL),
             "device": SettingsService.get("yolo_device", "cpu"),
             "available_models": SettingsService.get("vision_models", []),
             "last_detection": VisionRuntime.last_detection,
+            "last_scene": VisionRuntime.last_scene_status,
             "snapshot_available": bool(VisionRuntime.last_snapshot),
             "error": VisionRuntime.error,
         }
@@ -220,8 +226,13 @@ class VisionService:
             raise ValueError("No object detection is available yet.")
         objects = detection["objects"]
         labels = [item["label"] for item in objects if item.get("label")]
-        label_summary = ", ".join(dict.fromkeys(labels)) or "objects"
+        label_summary = self._scene_label_summary(objects)
+        scene_sentence = self._scene_sentence(objects)
+        signature = self._scene_signature(objects)
         snapshot = VisionRuntime.last_snapshot if SettingsService.get("snapshot_storage_enabled", False) else None
+        duplicate = self._recent_duplicate_scene(workspace_id, signature, source)
+        if duplicate:
+            return duplicate
         event = VisionEvent(
             workspace_id=workspace_id,
             agent_id=agent_id,
@@ -232,13 +243,16 @@ class VisionService:
                 "objects": objects,
                 "source": source,
                 "snapshot_attached": bool(snapshot),
+                "scene_signature": signature,
+                "scene_summary": scene_sentence,
             },
         )
         db.session.add(event)
         db.session.flush()
         content_lines = [
-            f"Local vision detected {label_summary}.",
+            scene_sentence,
             f"Timestamp: {detection.get('timestamp')}",
+            f"Scene signature: {signature}",
             "Objects:",
         ]
         for item in objects:
@@ -251,9 +265,9 @@ class VisionService:
             {
                 "workspace_id": workspace_id,
                 "agent_id": agent_id,
-                "title": f"Vision detected {label_summary}",
+                "title": f"Vision scene: {label_summary}",
                 "content": "\n".join(content_lines),
-                "summary": f"Detected {label_summary} from the local camera.",
+                "summary": scene_sentence,
                 "memory_type": "vision",
                 "tags": sorted(set(["vision", "camera", source] + labels)),
                 "importance_score": 0.35,
@@ -279,16 +293,68 @@ class VisionService:
                 current_app.logger.exception("Could not refresh vision snapshot memory vector")
         return event, memory
 
+    def _recent_duplicate_scene(self, workspace_id, signature, source):
+        window_seconds = max(int(SettingsService.get("vision_auto_save_interval_seconds", 30) or 30), 5)
+        if source == "manual":
+            window_seconds = 60
+        since = datetime.utcnow() - timedelta(seconds=window_seconds)
+        events = (
+            VisionEvent.query.filter(
+                VisionEvent.workspace_id == workspace_id,
+                VisionEvent.created_at >= since,
+                VisionEvent.saved_as_memory_id.isnot(None),
+            )
+            .order_by(VisionEvent.created_at.desc())
+            .limit(50)
+            .all()
+        )
+        for event in events:
+            meta = event.meta or {}
+            if meta.get("scene_signature") == signature and meta.get("source") == source:
+                memory = db.session.get(Memory, event.saved_as_memory_id)
+                if memory and not memory.deleted_at:
+                    return event, memory
+        return None
+
     def _maybe_auto_save_current_detection(self, snapshot):
         if not SettingsService.get("vision_auto_save", False):
             return
         detection = VisionRuntime.last_detection
         if not detection or not detection.get("objects"):
             return
-        signature = self._detection_signature(detection["objects"])
+        min_confidence = float(SettingsService.get("vision_auto_save_min_confidence", 0.55) or 0.55)
+        stable_frames = max(int(SettingsService.get("vision_scene_stable_frames", 3) or 3), 1)
+        objects = self._significant_objects(detection["objects"], min_confidence)
+        if not objects:
+            VisionRuntime.last_scene_status = {
+                "status": "ignored",
+                "reason": "no_objects_above_min_confidence",
+                "min_confidence": min_confidence,
+                "timestamp": detection.get("timestamp"),
+            }
+            return
+        signature = self._scene_signature(objects)
+        if signature == VisionRuntime.current_scene_signature:
+            VisionRuntime.current_scene_seen += 1
+        else:
+            VisionRuntime.current_scene_signature = signature
+            VisionRuntime.current_scene_seen = 1
+        VisionRuntime.last_scene_status = {
+            "status": "observing",
+            "signature": signature,
+            "summary": self._scene_sentence(objects),
+            "stable_frames_seen": VisionRuntime.current_scene_seen,
+            "stable_frames_required": stable_frames,
+            "min_confidence": min_confidence,
+            "timestamp": detection.get("timestamp"),
+        }
+        if VisionRuntime.current_scene_seen < stable_frames:
+            return
         now = time.time()
         interval = max(int(SettingsService.get("vision_auto_save_interval_seconds", 30) or 30), 5)
         if signature == VisionRuntime.last_auto_saved_signature and VisionRuntime.last_auto_saved_at and now - VisionRuntime.last_auto_saved_at < interval:
+            VisionRuntime.last_scene_status["status"] = "suppressed"
+            VisionRuntime.last_scene_status["reason"] = "same_scene_inside_interval"
             return
         workspace = Workspace.query.order_by(Workspace.id.asc()).first()
         agent = Agent.query.filter_by(active=True).order_by(Agent.id.asc()).first()
@@ -297,16 +363,46 @@ class VisionService:
             return
         try:
             VisionRuntime.last_snapshot = snapshot
+            VisionRuntime.last_detection = {**detection, "objects": objects}
             self.save_current_detection(workspace.id, agent.id, source="auto", actor_type="system", actor_id=None)
             VisionRuntime.last_auto_saved_signature = signature
             VisionRuntime.last_auto_saved_at = now
+            VisionRuntime.last_scene_status["status"] = "saved"
+            VisionRuntime.last_scene_status["saved_at"] = datetime.utcnow().isoformat()
         except Exception as exc:
             VisionRuntime.error = f"Vision auto-save failed: {exc}"
             current_app.logger.exception("Vision auto-save failed")
 
-    def _detection_signature(self, objects):
-        parts = [f"{item.get('label')}:{round(float(item.get('confidence', 0.0)), 1)}" for item in objects]
-        return "|".join(sorted(parts))
+    def _significant_objects(self, objects, min_confidence):
+        return [item for item in objects if item.get("label") and float(item.get("confidence", 0.0)) >= min_confidence]
+
+    def _scene_counts(self, objects):
+        counts = {}
+        for item in objects:
+            label = str(item.get("label") or "").strip()
+            if label:
+                counts[label] = counts.get(label, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def _scene_signature(self, objects):
+        counts = self._scene_counts(objects)
+        return "|".join(f"{label}:{count}" for label, count in counts.items()) or "empty"
+
+    def _scene_label_summary(self, objects):
+        counts = self._scene_counts(objects)
+        parts = [f"{count} {label}{'' if count == 1 else 's'}" for label, count in counts.items()]
+        return ", ".join(parts) or "objects"
+
+    def _scene_sentence(self, objects):
+        counts = self._scene_counts(objects)
+        if not counts:
+            return "Local vision did not detect significant objects."
+        parts = [f"{count} {label}{'' if count == 1 else 's'}" for label, count in counts.items()]
+        if len(parts) == 1:
+            summary = parts[0]
+        else:
+            summary = f"{', '.join(parts[:-1])} and {parts[-1]}"
+        return f"Local vision observed a scene with {summary}."
 
     def _attach_snapshot_asset(self, memory, snapshot, detection):
         snapshot_dir = Path(current_app.config["SNAPSHOT_DIR"])

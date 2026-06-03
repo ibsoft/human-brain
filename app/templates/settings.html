@@ -103,6 +103,8 @@
       </div>
       <div class="settings-fields">
         <div><label class="form-label">Auto-save interval seconds</label><input class="form-control" name="vision_auto_save_interval_seconds" type="number" min="5" value="{{ settings.vision_auto_save_interval_seconds }}" placeholder="30"></div>
+        <div><label class="form-label">Auto-save min confidence</label><input class="form-control" name="vision_auto_save_min_confidence" type="number" step="0.01" min="0" max="1" value="{{ settings.vision_auto_save_min_confidence }}" placeholder="0.55"></div>
+        <div><label class="form-label">Stable frames before save</label><input class="form-control" name="vision_scene_stable_frames" type="number" min="1" max="30" value="{{ settings.vision_scene_stable_frames }}" placeholder="3"></div>
         <div><label class="form-label">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics"></div>
         <div><label class="form-label">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0"></div>
         <div><label class="form-label">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select></div>
@@ -117,5 +119,48 @@
     <button class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
   </div>
 </form>
+<section class="settings-card settings-card-wide mt-4">
+  <div class="panel-heading">
+    <h2><i class="fa-solid fa-robot"></i> Agent System Prompt</h2>
+    <div class="hero-actions">
+      <a class="btn btn-sm btn-outline-info" href="{{ url_for('main.download_agent_skill') }}"><i class="fa-solid fa-download"></i> Skill</a>
+      <a class="btn btn-sm btn-outline-info" href="{{ url_for('main.download_agent_protocol') }}"><i class="fa-solid fa-download"></i> Protocol</a>
+    </div>
+  </div>
+  <div class="text-secondary mb-3">Copy the prompt into an agent, then give it the downloadable skill and API protocol files.</div>
+  <div class="settings-subgrid agent-prompt-grid">
+    <div class="settings-group">
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <h3>Short</h3>
+        <button class="btn btn-sm btn-outline-info agent-prompt-copy" type="button" data-copy-target="agentPromptShort"><i class="fa-solid fa-copy"></i> Copy</button>
+      </div>
+      <textarea id="agentPromptShort" class="form-control agent-prompt-box" rows="7" readonly>{{ agent_memory_prompts.short }}</textarea>
+    </div>
+    <div class="settings-group">
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <h3>Long</h3>
+        <button class="btn btn-sm btn-outline-info agent-prompt-copy" type="button" data-copy-target="agentPromptLong"><i class="fa-solid fa-copy"></i> Copy</button>
+      </div>
+      <textarea id="agentPromptLong" class="form-control agent-prompt-box" rows="14" readonly>{{ agent_memory_prompts.long }}</textarea>
+    </div>
+  </div>
+</section>
 <section class="panel mt-4"><h2>Effective Settings</h2><pre class="output">{{ settings_json }}</pre></section>
+<script>
+document.querySelectorAll(".agent-prompt-copy").forEach(button => {
+  button.addEventListener("click", async () => {
+    const target = document.getElementById(button.dataset.copyTarget);
+    if(!target) return;
+    try{
+      await navigator.clipboard.writeText(target.value);
+      const original = button.innerHTML;
+      button.innerHTML = '<i class="fa-solid fa-check"></i> Copied';
+      setTimeout(() => { button.innerHTML = original; }, 1400);
+    }catch(error){
+      target.select();
+      document.execCommand("copy");
+    }
+  });
+});
+</script>
 {% endblock %}

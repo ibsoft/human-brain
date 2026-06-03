@@ -74,3 +74,14 @@ html[data-bs-theme="light"] .text-secondary,html[data-bs-theme="light"] .panel-h
 html[data-bs-theme="light"] .global-spinner{background:rgba(239,248,243,.62)}
 html[data-bs-theme="light"] .spinner-card{background:#fff;border-color:rgba(8,123,82,.18);color:#102118}
 @media(max-width:900px){.mfa-setup-card,.profile-form-grid{grid-template-columns:1fr}.mfa-qr-box{width:100%;max-width:240px;margin:0 auto}}
+html[data-bs-theme="light"] .settings-card{background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(242,248,245,.98));border-color:rgba(8,123,82,.16);box-shadow:var(--shadow);color:#102118}
+html[data-bs-theme="light"] .settings-card h2,html[data-bs-theme="light"] .settings-card h3,html[data-bs-theme="light"] .settings-card .form-label,html[data-bs-theme="light"] .settings-card .form-check-label{color:#102118}
+html[data-bs-theme="light"] .settings-card h2 i{color:#087b52}
+html[data-bs-theme="light"] .settings-group{background:rgba(8,123,82,.045);border-color:rgba(8,123,82,.14);color:#102118}
+html[data-bs-theme="light"] .settings-savebar{background:linear-gradient(180deg,rgba(244,248,245,0),rgba(244,248,245,.96) 34%)}
+html[data-bs-theme="light"] .health-tile{background:rgba(8,123,82,.06);border-color:rgba(8,123,82,.14);color:#102118}
+html[data-bs-theme="light"] .health-tile b{color:#102118}
+html[data-bs-theme="light"] .health-check{background:rgba(8,123,82,.045);border-color:rgba(8,123,82,.13);color:#102118}
+html[data-bs-theme="light"] .health-check span{color:var(--muted)}
+html[data-bs-theme="light"] .vision-scene-card{background:rgba(8,123,82,.06);border-color:rgba(8,123,82,.14);color:#102118}
+html[data-bs-theme="light"] .vision-scene-card strong{color:#087b52}
