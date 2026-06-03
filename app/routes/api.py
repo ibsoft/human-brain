@@ -7,7 +7,9 @@ from app.services.context_service import ContextService, confirm_memory
 from app.services.document_service import DocumentIngestionService
 from app.services.embedding_service import EmbeddingService
 from app.services.faiss_service import FaissService
+from app.services.audit_service import AuditService
 from app.services.memory_service import MemoryService, serialize_asset, serialize_correlations, serialize_memory
+from app.services.memory_quality_service import MemoryQualityService
 from app.services.performance_service import PerformanceService
 from app.services.settings_service import SettingsService
 from app.services.session_service import SessionService
@@ -64,10 +66,27 @@ def form_tags():
 @require_api_key
 @limiter.limit("120 per minute")
 def memory_add():
-    payload = json_payload()
+    payload = MemoryQualityService().normalize_payload(json_payload())
     require_workspace_access(payload.get("agent_id"), payload.get("workspace_id"))
+    quality_service = MemoryQualityService()
+    quality = quality_service.evaluate_payload(payload)
+    agent_policy = quality_service.write_policy_status(payload)
+    if quality["reject_low_quality"] and quality["score"] < quality["reject_below_score"]:
+        abort(400, description=f"Memory quality too low: {', '.join(quality['warnings'])}")
+    if agent_policy["strict_mode"] and agent_policy["warnings"]:
+        abort(400, description=f"Agent policy violation: {', '.join(agent_policy['warnings'])}")
     memory, duplicate = MemoryService().add_memory(payload, actor_id=payload.get("agent_id"))
-    return jsonify({"memory": serialize_memory(memory), "duplicate": duplicate}), 201
+    AuditService.log(
+        "agent.memory_writeback",
+        "agent",
+        payload.get("agent_id"),
+        payload.get("workspace_id"),
+        "memory",
+        memory.id,
+        metadata={"duplicate": duplicate, "quality": quality, "agent_policy": agent_policy, "memory_type": memory.memory_type},
+    )
+    db.session.commit()
+    return jsonify({"memory": serialize_memory(memory), "duplicate": duplicate, "quality": quality, "agent_policy": agent_policy}), 201
 
 
 @api_bp.post("/memory/upload")
@@ -148,7 +167,10 @@ def memory_search():
     require_workspace_access(payload.get("agent_id"), payload.get("workspace_id"))
     payload.setdefault("include_timing", True)
     search = MemoryService().search(payload, semantic=True)
-    return jsonify(search if isinstance(search, dict) else {"results": search})
+    response = search if isinstance(search, dict) else {"results": search}
+    _record_agent_search(payload, "agent.memory_search", response)
+    response["agent_policy"] = MemoryQualityService().search_policy_status()
+    return jsonify(response)
 
 
 @api_bp.get("/search")
@@ -170,7 +192,10 @@ def memory_search_get():
         "record_access": bool_arg("record_access", True),
     }
     search = MemoryService().search(payload, semantic=True)
-    return jsonify(search if isinstance(search, dict) else {"results": search})
+    response = search if isinstance(search, dict) else {"results": search}
+    _record_agent_search(payload, "agent.memory_search", response)
+    response["agent_policy"] = MemoryQualityService().search_policy_status()
+    return jsonify(response)
 
 
 @api_bp.post("/memory/hybrid-search")
@@ -180,7 +205,10 @@ def memory_hybrid_search():
     require_workspace_access(payload.get("agent_id"), payload.get("workspace_id"))
     payload.setdefault("include_timing", True)
     search = MemoryService().search(payload, semantic=True)
-    return jsonify(search if isinstance(search, dict) else {"results": search})
+    response = search if isinstance(search, dict) else {"results": search}
+    _record_agent_search(payload, "agent.memory_search", response)
+    response["agent_policy"] = MemoryQualityService().search_policy_status()
+    return jsonify(response)
 
 
 @api_bp.post("/memory/update")
@@ -302,6 +330,35 @@ def memory_stats():
     )
 
 
+@api_bp.get("/memory/quality-report")
+@require_api_key
+def memory_quality_report():
+    workspace_id = request.args.get("workspace_id", type=int)
+    agent_id = g.agent.id
+    require_workspace_access(agent_id, workspace_id)
+    return jsonify(MemoryQualityService().quality_report(workspace_id))
+
+
+@api_bp.get("/memory/stale")
+@require_api_key
+def memory_stale():
+    workspace_id = request.args.get("workspace_id", type=int)
+    agent_id = g.agent.id
+    require_workspace_access(agent_id, workspace_id)
+    page = request.args.get("page", 1, type=int)
+    per_page = min(request.args.get("per_page", 25, type=int), 100)
+    pagination = MemoryQualityService().stale_memories(workspace_id, page=page, per_page=per_page)
+    return jsonify(
+        {
+            "items": [serialize_memory(memory, include_assets=False) for memory in pagination.items],
+            "page": pagination.page,
+            "pages": pagination.pages,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+        }
+    )
+
+
 @api_bp.get("/vector/health")
 @require_api_key
 def vector_health():
@@ -341,7 +398,10 @@ def performance():
 def context_build():
     payload = json_payload()
     require_workspace_access(payload.get("agent_id"), payload.get("workspace_id"))
-    return jsonify(ContextService().build(payload))
+    response = ContextService().build(payload)
+    _record_agent_search(payload, "agent.context_build", response)
+    response["agent_policy"] = MemoryQualityService().search_policy_status()
+    return jsonify(response)
 
 
 @api_bp.post("/session/start")
@@ -437,3 +497,21 @@ def _serialize_job(job):
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
+
+
+def _record_agent_search(payload, action, response):
+    results = response.get("results") if isinstance(response, dict) else None
+    AuditService.log(
+        action,
+        "agent",
+        payload.get("agent_id"),
+        payload.get("workspace_id"),
+        "memory",
+        None,
+        metadata={
+            "query": payload.get("query") or payload.get("prompt") or "",
+            "top_k": payload.get("top_k"),
+            "result_count": len(results or []),
+        },
+    )
+    db.session.commit()

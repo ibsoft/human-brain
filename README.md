@@ -827,6 +827,7 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-core.txt
 pip install -r requirements-ml.txt
+scripts/production_check.sh
 flask --app manage:app db upgrade
 ```
 
@@ -878,6 +879,17 @@ state, vector mappings, and memories missing vectors. When automatic repair is
 enabled, the worker rebuilds affected FAISS workspace indexes. Operators can
 queue manual check-only or run-and-repair jobs and inspect paged run history on
 the System Health page.
+
+Settings also control memory quality and agent enforcement. Agent searches and
+context builds are audited so `/api/v1/memory/add` can report whether
+search-before-write was followed. Memory writes return quality scores and
+warnings, task/project payloads can include structured workflow fields, and
+operators can inspect cleanup state with:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/quality-report?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+curl "$HUMAN_BRAIN_URL/api/v1/memory/stale?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
 
 ## YOLO Setup
 
