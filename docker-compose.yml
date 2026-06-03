@@ -15,9 +15,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: human_brain
-      POSTGRES_PASSWORD: human_brain
-      POSTGRES_DB: human_brain
+      POSTGRES_USER: ${POSTGRES_USER:-human_brain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-human_brain}
+      POSTGRES_DB: ${POSTGRES_DB:-human_brain}
     volumes:
       - postgres_data:/var/lib/postgresql/data
   redis:
@@ -50,4 +50,3 @@ services:
       - web
 volumes:
   postgres_data:
-

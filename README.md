@@ -17,6 +17,17 @@
 
 ## Local Setup
 
+Interactive setup can generate `.env`, create local runtime directories, run
+migrations, optionally seed demo data, and guide production or Docker installs:
+
+```bash
+scripts/setup.sh
+```
+
+Choose `development`, `production`, or `docker` when prompted. The production
+path can create the PostgreSQL role/database and install a systemd service; the
+Docker path writes matching PostgreSQL settings for `docker-compose.yml`.
+
 ```bash
 cd human-brain
 python3.11 -m venv .venv
@@ -27,12 +38,14 @@ pip install -r requirements-ml.txt
 cp .env.local.example .env
 export FLASK_ENV=development
 export HUMAN_BRAIN_URL=http://localhost:5000
-flask --app manage:app db init
-flask --app manage:app db migrate -m "initial schema"
 flask --app manage:app db upgrade
 python manage.py seed-demo-data
 python manage.py
 ```
+
+The repository already includes Alembic migrations. For normal local setup, run
+`db upgrade` only; use `db migrate` only when you intentionally change the
+SQLAlchemy models and need to create a new migration.
 
 Open `$HUMAN_BRAIN_URL`.
 On first launch, `/login` redirects to `/setup` so you can create the first admin account in the browser.
@@ -858,6 +871,14 @@ Dashboard Jobs are background worker records for operations such as session cons
 
 Settings can also enable scheduled duplicate consolidation. The worker finds duplicate/similar memories, creates one consolidated memory, and optionally archives the duplicate source memories.
 
+Settings can enable scheduled system health checks. Celery beat evaluates the
+configured hourly, daily, or weekly policy and records each due run. Health
+checks verify database reachability, runtime directory writability, FAISS index
+state, vector mappings, and memories missing vectors. When automatic repair is
+enabled, the worker rebuilds affected FAISS workspace indexes. Operators can
+queue manual check-only or run-and-repair jobs and inspect paged run history on
+the System Health page.
+
 ## YOLO Setup
 
 Vision settings are controlled in `/settings`. Add model names or local paths to the available model list, set the active model, choose the inference device, enable camera access, and decide whether snapshots are allowed. Metadata is stored by default; frames are not persisted unless snapshot storage is enabled.
@@ -893,4 +914,4 @@ flask --app manage:app camera-check --max-index 5
 - Celery jobs stuck: confirm Redis is reachable and workers are running.
 - Vision disabled: enable camera use on Settings.
 - `yolo26x.pt` fails with a `C3k2` error: the installed Ultralytics runtime does not support that checkpoint. Use `models/yolov8n.pt` or upgrade the ML dependencies before selecting it.
-- PostgreSQL migrations: run `flask --app manage:app db migrate` and `flask --app manage:app db upgrade`.
+- PostgreSQL migrations: run `flask --app manage:app db upgrade`. Developers changing SQLAlchemy models should create a new migration with `flask --app manage:app db migrate -m "describe change"` before upgrading.

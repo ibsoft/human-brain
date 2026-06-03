@@ -6,10 +6,11 @@ from pathlib import Path
 from flask import render_template
 
 from app.extensions import db
-from app.models import Agent, AuditLog, Memory, MemoryAsset, SessionMessage, User, Workspace
+from app.models import Agent, AuditLog, HealthCheckRun, Memory, MemoryAsset, SessionMessage, User, Workspace
 from app.services.agent_log_service import AgentLogService
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
+from app.services.health_service import HealthCheckService
 from app.services.reranker_service import RerankerService
 from app.services.settings_service import SettingsService
 from app.services.vision_service import VisionRuntime, VisionService
@@ -1098,6 +1099,27 @@ def test_vector_health_endpoint(client, app, api_headers):
     perf = client.get("/api/v1/performance", headers=api_headers)
     assert perf.status_code == 200
     assert "search_latency" in perf.get_json()
+
+
+def test_health_check_service_records_run(app):
+    with app.app_context():
+        SettingsService.ensure_defaults()
+        run = HealthCheckService().run(trigger="manual", auto_repair=False)
+        assert run.status == "completed"
+        assert run.severity in {"ok", "warning"}
+        assert HealthCheckRun.query.count() == 1
+        assert any(check["name"] == "Database" for check in run.checks)
+
+
+def test_system_health_page_shows_run_history(client, app):
+    with app.app_context():
+        HealthCheckService().run(trigger="manual", auto_repair=False)
+    client.post("/login", data={"email": "admin@example.com", "password": "password"})
+    res = client.get("/system-health")
+    assert res.status_code == 200
+    assert b"Run History" in res.data
+    assert b"Run & Repair" in res.data
+    assert b"Checks:" in res.data
 
 
 def test_get_search_compact_mode(client, app, api_headers):

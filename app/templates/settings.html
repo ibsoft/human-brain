@@ -1,98 +1,121 @@
 {% extends "base.html" %}{% block page_title %}Settings{% endblock %}{% block content %}
-<form class="panel" method="post">
+<form method="post" class="settings-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="row g-4">
-    <div class="col-lg-6">
-      <h2>Privacy & Memory Policy</h2>
-      {% for key,label in [('local_first_privacy_mode','Local-first privacy mode'),('auto_store_consolidated_memory','Auto-store consolidated memories'),('block_high','Block high sensitivity in context'),('block_secret','Block secret memories in context'),('allow_sensitive_context_for_admin','Allow admin sensitive context override')] %}
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) or settings.get('sensitivity_firewall',{}).get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
-      {% endfor %}
-      <label class="form-label mt-3">Public base URL</label><input class="form-control" name="public_base_url" value="{{ settings.public_base_url }}" placeholder="https://human-brain.ibnet.lan">
-      <div class="form-text text-secondary">Used for tokenized uploaded file/image URLs returned to remote agents.</div>
-      <label class="form-label mt-3">Display timezone</label>
-      <input class="form-control" name="display_timezone" value="{{ settings.display_timezone }}" placeholder="Europe/Athens" list="timezoneOptions">
-      <datalist id="timezoneOptions">
-        <option value="UTC">
-        <option value="Europe/Athens">
-        <option value="Europe/London">
-        <option value="Europe/Berlin">
-        <option value="America/New_York">
-        <option value="America/Los_Angeles">
-        <option value="Asia/Tokyo">
-      </datalist>
-      <div class="form-text text-secondary">Used for table and page display times. Stored timestamps remain UTC.</div>
-      <label class="form-label mt-3">Retention days</label><input class="form-control" type="number" name="retention_days" value="{{ settings.retention_days }}" placeholder="365">
-      <h2 class="mt-4">Embedding Models</h2>
-      <label class="form-label">Active embedding model</label>
-      <select class="form-select" name="embedding_model">
-        {% for model in settings.embedding_models %}
-        <option value="{{ model }}" {% if settings.embedding_model == model %}selected{% endif %}>{{ model }}</option>
+  <div class="settings-grid">
+    <section class="settings-card">
+      <div class="panel-heading"><h2><i class="fa-solid fa-shield-halved"></i> Privacy & Memory</h2><span>Access policy</span></div>
+      <div class="settings-switches">
+        {% for key,label in [('local_first_privacy_mode','Local-first privacy mode'),('auto_store_consolidated_memory','Auto-store consolidated memories'),('block_high','Block high sensitivity in context'),('block_secret','Block secret memories in context'),('allow_sensitive_context_for_admin','Allow admin sensitive context override')] %}
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) or settings.get('sensitivity_firewall',{}).get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
         {% endfor %}
-      </select>
-      <label class="form-label mt-3">Ollama base URL</label><input class="form-control" name="ollama_base_url" value="{{ settings.ollama_base_url }}" placeholder="http://localhost:11434">
-      <label class="form-label mt-3">Available embedding models, one per line</label><textarea class="form-control" name="embedding_models" rows="6" placeholder="sentence-transformers/all-MiniLM-L6-v2&#10;ollama:paraphrase-multilingual&#10;hash">{{ settings.embedding_models|join('\n') }}</textarea>
-      <h2 class="mt-4">Backup Schedule</h2>
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="backup_schedule_enabled" {% if settings.backup_schedule.enabled %}checked{% endif %}><label class="form-check-label">Enable scheduled backups</label></div>
-      <label class="form-label mt-2">Frequency</label><select class="form-select" name="backup_frequency"><option value="daily" {% if settings.backup_schedule.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.backup_schedule.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
-      <label class="form-label mt-2">Time</label><input class="form-control" name="backup_time" value="{{ settings.backup_schedule.time }}" placeholder="02:00">
-      <label class="form-label mt-2">Keep last</label><input class="form-control" type="number" name="backup_keep_last" value="{{ settings.backup_schedule.keep_last }}" placeholder="7">
-      <h2 class="mt-4">Duplicate Consolidation</h2>
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="duplicate_consolidation_enabled" {% if settings.duplicate_consolidation.enabled %}checked{% endif %}><label class="form-check-label">Enable scheduled duplicate consolidation</label></div>
-      <label class="form-label mt-2">Frequency</label><select class="form-select" name="duplicate_frequency"><option value="daily" {% if settings.duplicate_consolidation.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.duplicate_consolidation.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
-      <label class="form-label mt-2">Time</label><input class="form-control" name="duplicate_time" value="{{ settings.duplicate_consolidation.time }}" placeholder="03:00">
-      <label class="form-label mt-2">Minimum group size</label><input class="form-control" type="number" name="duplicate_min_group_size" value="{{ settings.duplicate_consolidation.min_group_size }}" min="2">
-      <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="duplicate_archive_duplicates" {% if settings.duplicate_consolidation.archive_duplicates %}checked{% endif %}><label class="form-check-label">Archive duplicate source memories after consolidation</label></div>
-      <h2 class="mt-4">Agent API Logging</h2>
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="agent_api_logging_enabled" {% if settings.agent_api_logging_enabled %}checked{% endif %}><label class="form-check-label">Write agent request/response JSONL logs</label></div>
-      <label class="form-label mt-2">Log level</label><select class="form-select" name="agent_api_log_level"><option value="debug" {% if settings.agent_api_log_level == 'debug' %}selected{% endif %}>debug</option><option value="info" {% if settings.agent_api_log_level == 'info' %}selected{% endif %}>info</option><option value="warning" {% if settings.agent_api_log_level == 'warning' %}selected{% endif %}>warning</option></select>
-      <label class="form-label mt-2">Rotate after MB</label><input class="form-control" type="number" name="agent_api_log_max_mb" value="{{ settings.agent_api_log_max_mb }}" min="1">
-      <label class="form-label mt-2">Keep rotated files</label><input class="form-control" type="number" name="agent_api_log_keep_files" value="{{ settings.agent_api_log_keep_files }}" min="1">
-      <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" name="agent_auto_sessions" {% if settings.agent_auto_sessions %}checked{% endif %}><label class="form-check-label">Require agents to use sessions in operating guidance</label></div>
-      <h2 class="mt-4">Reranker Settings</h2>
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="reranker_enabled" {% if settings.reranker_enabled %}checked{% endif %}><label class="form-check-label">Reranker Enabled</label></div>
-      <label class="form-label mt-2">Provider</label><select class="form-select" name="reranker_provider"><option value="none" {% if settings.reranker_provider == 'none' %}selected{% endif %}>none</option><option value="cross_encoder" {% if settings.reranker_provider == 'cross_encoder' %}selected{% endif %}>cross_encoder</option><option value="ollama" {% if settings.reranker_provider == 'ollama' %}selected{% endif %}>ollama</option></select>
-      <label class="form-label mt-2">Default Mode</label><select class="form-select" name="reranker_default_mode"><option value="off" {% if settings.reranker_default_mode == 'off' %}selected{% endif %}>off</option><option value="always" {% if settings.reranker_default_mode == 'always' %}selected{% endif %}>always</option><option value="conditional" {% if settings.reranker_default_mode == 'conditional' %}selected{% endif %}>conditional</option></select>
-      <label class="form-label mt-2">Cross-Encoder Model Name</label><input class="form-control" name="reranker_cross_encoder_model" value="{{ settings.reranker_cross_encoder_model }}" placeholder="BAAI/bge-reranker-base">
-      <label class="form-label mt-2">Ollama Base URL</label><input class="form-control" name="reranker_ollama_base_url" value="{{ settings.reranker_ollama_base_url }}" placeholder="http://localhost:11434">
-      <label class="form-label mt-2">Ollama Model Name</label><input class="form-control" name="reranker_ollama_model" value="{{ settings.reranker_ollama_model }}" placeholder="qwen2.5:7b">
-      <div class="row g-2 mt-1">
-        <div class="col-md-6"><label class="form-label">Reranker Top N</label><input class="form-control" type="number" name="reranker_top_n" value="{{ settings.reranker_top_n }}" min="1" max="50"></div>
-        <div class="col-md-6"><label class="form-label">Return Top K</label><input class="form-control" type="number" name="reranker_return_k" value="{{ settings.reranker_return_k }}" min="1" max="50"></div>
-        <div class="col-md-6"><label class="form-label">Timeout MS</label><input class="form-control" type="number" name="reranker_timeout_ms" value="{{ settings.reranker_timeout_ms }}" min="1" max="120000"></div>
-        <div class="col-md-6"><label class="form-label">Model Load Timeout MS</label><input class="form-control" type="number" name="reranker_model_load_timeout_ms" value="{{ settings.reranker_model_load_timeout_ms }}" min="1" max="300000"></div>
-        <div class="col-md-6"><label class="form-label">Max Candidate Text Chars</label><input class="form-control" type="number" name="reranker_max_text_chars" value="{{ settings.reranker_max_text_chars }}" min="100" max="12000"></div>
-        <div class="col-md-6"><label class="form-label">Reranker Weight</label><input class="form-control" type="number" step="0.01" name="reranker_weight" value="{{ settings.reranker_weight }}" min="0" max="1"></div>
-        <div class="col-md-6"><label class="form-label">FAISS Weight</label><input class="form-control" type="number" step="0.01" name="faiss_weight" value="{{ settings.faiss_weight }}" min="0" max="1"></div>
-        <div class="col-md-6"><label class="form-label">Trust Weight</label><input class="form-control" type="number" step="0.01" name="trust_weight" value="{{ settings.trust_weight }}" min="0" max="1"></div>
-        <div class="col-md-6"><label class="form-label">Importance Weight</label><input class="form-control" type="number" step="0.01" name="importance_weight" value="{{ settings.importance_weight }}" min="0" max="1"></div>
-        <div class="col-md-6"><label class="form-label">Conditional Threshold</label><input class="form-control" type="number" step="0.01" name="reranker_conditional_threshold" value="{{ settings.reranker_conditional_threshold }}" min="0" max="1"></div>
-        <div class="col-md-6"><label class="form-label">Device</label><select class="form-select" name="reranker_device"><option value="cpu" {% if settings.reranker_device == 'cpu' %}selected{% endif %}>cpu</option><option value="cuda" {% if settings.reranker_device == 'cuda' %}selected{% endif %}>cuda</option></select></div>
+      </div>
+      <div class="settings-fields">
+        <div><label class="form-label">Public base URL</label><input class="form-control" name="public_base_url" value="{{ settings.public_base_url }}" placeholder="https://human-brain.ibnet.lan"><div class="form-text text-secondary">Used for tokenized uploaded file/image URLs returned to remote agents.</div></div>
+        <div><label class="form-label">Display timezone</label><input class="form-control" name="display_timezone" value="{{ settings.display_timezone }}" placeholder="Europe/Athens" list="timezoneOptions"><div class="form-text text-secondary">Stored timestamps remain UTC.</div></div>
+        <div><label class="form-label">Retention days</label><input class="form-control" type="number" name="retention_days" value="{{ settings.retention_days }}" placeholder="365"></div>
+      </div>
+      <datalist id="timezoneOptions">
+        <option value="UTC"><option value="Europe/Athens"><option value="Europe/London"><option value="Europe/Berlin"><option value="America/New_York"><option value="America/Los_Angeles"><option value="Asia/Tokyo">
+      </datalist>
+    </section>
+
+    <section class="settings-card">
+      <div class="panel-heading"><h2><i class="fa-solid fa-vector-square"></i> Embeddings</h2><span>Semantic retrieval</span></div>
+      <div class="settings-fields">
+        <div><label class="form-label">Active embedding model</label><select class="form-select" name="embedding_model">{% for model in settings.embedding_models %}<option value="{{ model }}" {% if settings.embedding_model == model %}selected{% endif %}>{{ model }}</option>{% endfor %}</select></div>
+        <div><label class="form-label">Ollama base URL</label><input class="form-control" name="ollama_base_url" value="{{ settings.ollama_base_url }}" placeholder="http://localhost:11434"></div>
+        <div><label class="form-label">Available embedding models, one per line</label><textarea class="form-control" name="embedding_models" rows="6" placeholder="sentence-transformers/all-MiniLM-L6-v2&#10;ollama:paraphrase-multilingual&#10;hash">{{ settings.embedding_models|join('\n') }}</textarea></div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <div class="panel-heading"><h2><i class="fa-solid fa-calendar-check"></i> Automation</h2><span>Scheduled jobs</span></div>
+      <div class="settings-subgrid">
+        <div class="settings-group">
+          <h3>Backups</h3>
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="backup_schedule_enabled" {% if settings.backup_schedule.enabled %}checked{% endif %}><label class="form-check-label">Enable scheduled backups</label></div>
+          <label class="form-label">Frequency</label><select class="form-select" name="backup_frequency"><option value="daily" {% if settings.backup_schedule.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.backup_schedule.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
+          <label class="form-label">Time</label><input class="form-control" name="backup_time" value="{{ settings.backup_schedule.time }}" placeholder="02:00">
+          <label class="form-label">Keep last</label><input class="form-control" type="number" name="backup_keep_last" value="{{ settings.backup_schedule.keep_last }}" placeholder="7">
+        </div>
+        <div class="settings-group">
+          <h3>Duplicate Consolidation</h3>
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="duplicate_consolidation_enabled" {% if settings.duplicate_consolidation.enabled %}checked{% endif %}><label class="form-check-label">Enable duplicate consolidation</label></div>
+          <label class="form-label">Frequency</label><select class="form-select" name="duplicate_frequency"><option value="daily" {% if settings.duplicate_consolidation.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.duplicate_consolidation.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
+          <label class="form-label">Time</label><input class="form-control" name="duplicate_time" value="{{ settings.duplicate_consolidation.time }}" placeholder="03:00">
+          <label class="form-label">Minimum group size</label><input class="form-control" type="number" name="duplicate_min_group_size" value="{{ settings.duplicate_consolidation.min_group_size }}" min="2">
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="duplicate_archive_duplicates" {% if settings.duplicate_consolidation.archive_duplicates %}checked{% endif %}><label class="form-check-label">Archive source memories</label></div>
+        </div>
+        <div class="settings-group">
+          <h3>System Health</h3>
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="health_check_schedule_enabled" {% if settings.health_check_schedule.enabled %}checked{% endif %}><label class="form-check-label">Enable scheduled checks</label></div>
+          <label class="form-label">Frequency</label><select class="form-select" name="health_check_frequency"><option value="hourly" {% if settings.health_check_schedule.frequency == 'hourly' %}selected{% endif %}>Hourly</option><option value="daily" {% if settings.health_check_schedule.frequency == 'daily' %}selected{% endif %}>Daily</option><option value="weekly" {% if settings.health_check_schedule.frequency == 'weekly' %}selected{% endif %}>Weekly</option></select>
+          <label class="form-label">Time</label><input class="form-control" name="health_check_time" value="{{ settings.health_check_schedule.time }}" placeholder="04:00">
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="health_check_auto_repair" {% if settings.health_check_schedule.auto_repair %}checked{% endif %}><label class="form-check-label">Repair FAISS/vector problems</label></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="settings-card">
+      <div class="panel-heading"><h2><i class="fa-solid fa-file-lines"></i> Agent Logging</h2><span>Audit trail</span></div>
+      <div class="settings-switches">
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="agent_api_logging_enabled" {% if settings.agent_api_logging_enabled %}checked{% endif %}><label class="form-check-label">Write agent request/response JSONL logs</label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="agent_auto_sessions" {% if settings.agent_auto_sessions %}checked{% endif %}><label class="form-check-label">Require agents to use sessions in operating guidance</label></div>
+      </div>
+      <div class="settings-fields settings-fields-3">
+        <div><label class="form-label">Log level</label><select class="form-select" name="agent_api_log_level"><option value="debug" {% if settings.agent_api_log_level == 'debug' %}selected{% endif %}>debug</option><option value="info" {% if settings.agent_api_log_level == 'info' %}selected{% endif %}>info</option><option value="warning" {% if settings.agent_api_log_level == 'warning' %}selected{% endif %}>warning</option></select></div>
+        <div><label class="form-label">Rotate after MB</label><input class="form-control" type="number" name="agent_api_log_max_mb" value="{{ settings.agent_api_log_max_mb }}" min="1"></div>
+        <div><label class="form-label">Keep rotated files</label><input class="form-control" type="number" name="agent_api_log_keep_files" value="{{ settings.agent_api_log_keep_files }}" min="1"></div>
+      </div>
+    </section>
+
+    <section class="settings-card settings-card-wide">
+      <div class="panel-heading"><h2><i class="fa-solid fa-ranking-star"></i> Reranker</h2><span>Result scoring</span></div>
+      <div class="settings-switches"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="reranker_enabled" {% if settings.reranker_enabled %}checked{% endif %}><label class="form-check-label">Reranker enabled</label></div></div>
+      <div class="settings-fields settings-fields-3">
+        <div><label class="form-label">Provider</label><select class="form-select" name="reranker_provider"><option value="none" {% if settings.reranker_provider == 'none' %}selected{% endif %}>none</option><option value="cross_encoder" {% if settings.reranker_provider == 'cross_encoder' %}selected{% endif %}>cross_encoder</option><option value="ollama" {% if settings.reranker_provider == 'ollama' %}selected{% endif %}>ollama</option></select></div>
+        <div><label class="form-label">Default mode</label><select class="form-select" name="reranker_default_mode"><option value="off" {% if settings.reranker_default_mode == 'off' %}selected{% endif %}>off</option><option value="always" {% if settings.reranker_default_mode == 'always' %}selected{% endif %}>always</option><option value="conditional" {% if settings.reranker_default_mode == 'conditional' %}selected{% endif %}>conditional</option></select></div>
+        <div><label class="form-label">Device</label><select class="form-select" name="reranker_device"><option value="cpu" {% if settings.reranker_device == 'cpu' %}selected{% endif %}>cpu</option><option value="cuda" {% if settings.reranker_device == 'cuda' %}selected{% endif %}>cuda</option></select></div>
+        <div><label class="form-label">Cross-encoder model</label><input class="form-control" name="reranker_cross_encoder_model" value="{{ settings.reranker_cross_encoder_model }}" placeholder="BAAI/bge-reranker-base"></div>
+        <div><label class="form-label">Ollama base URL</label><input class="form-control" name="reranker_ollama_base_url" value="{{ settings.reranker_ollama_base_url }}" placeholder="http://localhost:11434"></div>
+        <div><label class="form-label">Ollama model</label><input class="form-control" name="reranker_ollama_model" value="{{ settings.reranker_ollama_model }}" placeholder="qwen2.5:7b"></div>
+        <div><label class="form-label">Reranker top N</label><input class="form-control" type="number" name="reranker_top_n" value="{{ settings.reranker_top_n }}" min="1" max="50"></div>
+        <div><label class="form-label">Return top K</label><input class="form-control" type="number" name="reranker_return_k" value="{{ settings.reranker_return_k }}" min="1" max="50"></div>
+        <div><label class="form-label">Timeout MS</label><input class="form-control" type="number" name="reranker_timeout_ms" value="{{ settings.reranker_timeout_ms }}" min="1" max="120000"></div>
+        <div><label class="form-label">Model load timeout MS</label><input class="form-control" type="number" name="reranker_model_load_timeout_ms" value="{{ settings.reranker_model_load_timeout_ms }}" min="1" max="300000"></div>
+        <div><label class="form-label">Max candidate text chars</label><input class="form-control" type="number" name="reranker_max_text_chars" value="{{ settings.reranker_max_text_chars }}" min="100" max="12000"></div>
+        <div><label class="form-label">Conditional threshold</label><input class="form-control" type="number" step="0.01" name="reranker_conditional_threshold" value="{{ settings.reranker_conditional_threshold }}" min="0" max="1"></div>
+        <div><label class="form-label">Reranker weight</label><input class="form-control" type="number" step="0.01" name="reranker_weight" value="{{ settings.reranker_weight }}" min="0" max="1"></div>
+        <div><label class="form-label">FAISS weight</label><input class="form-control" type="number" step="0.01" name="faiss_weight" value="{{ settings.faiss_weight }}" min="0" max="1"></div>
+        <div><label class="form-label">Trust weight</label><input class="form-control" type="number" step="0.01" name="trust_weight" value="{{ settings.trust_weight }}" min="0" max="1"></div>
+        <div><label class="form-label">Importance weight</label><input class="form-control" type="number" step="0.01" name="importance_weight" value="{{ settings.importance_weight }}" min="0" max="1"></div>
       </div>
       <button id="testRerankerButton" class="btn btn-outline-info mt-3" type="button"><i class="fa-solid fa-vial"></i> Test Reranker</button>
       <pre id="rerankerTestOutput" class="output mt-3"></pre>
-    </div>
-    <div class="col-lg-6">
-      <h2>Vision Models</h2>
-      {% for key,label in [('camera_enabled','Enable camera'),('snapshot_storage_enabled','Allow snapshot storage'),('vision_auto_save','Auto-save vision memories')] %}
-      <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
-      {% endfor %}
-      <label class="form-label mt-3">Auto-save interval seconds</label><input class="form-control" name="vision_auto_save_interval_seconds" type="number" min="5" value="{{ settings.vision_auto_save_interval_seconds }}" placeholder="30">
-      <label class="form-label mt-3">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics">
-      <label class="form-label mt-3">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0">
-      <label class="form-label mt-3">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select>
-      <label class="form-label mt-3">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="models/yolov8n.pt">
-      <label class="form-label mt-3">Inference device</label><select class="form-select" name="yolo_device"><option value="cpu" {% if settings.yolo_device == 'cpu' %}selected{% endif %}>CPU</option><option value="cuda" {% if settings.yolo_device == 'cuda' %}selected{% endif %}>CUDA</option><option value="cuda:0" {% if settings.yolo_device == 'cuda:0' %}selected{% endif %}>CUDA 0</option><option value="cuda:1" {% if settings.yolo_device == 'cuda:1' %}selected{% endif %}>CUDA 1</option><option value="mps" {% if settings.yolo_device == 'mps' %}selected{% endif %}>Apple MPS</option></select>
-      <label class="form-label mt-3">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="models/yolov8n.pt&#10;models/yolov8s.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea>
-      <div class="form-text text-secondary mt-2">
-        <div><code>yolov8n.pt</code> - best for real-time webcam, very fast</div>
-        <div><code>yolov8s.pt</code> - good default, still fast</div>
-        <div><code>yolov8m.pt</code> - best balance if FPS is still OK</div>
-        <div><code>yolov8l.pt</code> - heavier</div>
-        <div><code>yolov8x.pt</code> - highest accuracy, not ideal for always-on webcam</div>
+    </section>
+
+    <section class="settings-card">
+      <div class="panel-heading"><h2><i class="fa-solid fa-video"></i> Vision</h2><span>Camera and YOLO</span></div>
+      <div class="settings-switches">
+        {% for key,label in [('camera_enabled','Enable camera'),('snapshot_storage_enabled','Allow snapshot storage'),('vision_auto_save','Auto-save vision memories')] %}
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="{{ key }}" {% if settings.get(key) %}checked{% endif %}><label class="form-check-label">{{ label }}</label></div>
+        {% endfor %}
       </div>
-    </div>
+      <div class="settings-fields">
+        <div><label class="form-label">Auto-save interval seconds</label><input class="form-control" name="vision_auto_save_interval_seconds" type="number" min="5" value="{{ settings.vision_auto_save_interval_seconds }}" placeholder="30"></div>
+        <div><label class="form-label">Vision backend</label><input class="form-control" name="vision_backend" value="{{ settings.vision_backend }}" placeholder="ultralytics"></div>
+        <div><label class="form-label">Camera index</label><input class="form-control" name="camera_index" type="number" value="{{ settings.camera_index }}" placeholder="0"></div>
+        <div><label class="form-label">Camera API</label><select class="form-select" name="camera_api"><option value="auto" {% if settings.camera_api == 'auto' %}selected{% endif %}>auto</option><option value="v4l2" {% if settings.camera_api == 'v4l2' %}selected{% endif %}>Linux v4l2</option><option value="dshow" {% if settings.camera_api == 'dshow' %}selected{% endif %}>Windows dshow</option><option value="avfoundation" {% if settings.camera_api == 'avfoundation' %}selected{% endif %}>macOS avfoundation</option></select></div>
+        <div><label class="form-label">Active model</label><input class="form-control" name="yolo_model" value="{{ settings.yolo_model }}" placeholder="models/yolov8n.pt"></div>
+        <div><label class="form-label">Inference device</label><select class="form-select" name="yolo_device"><option value="cpu" {% if settings.yolo_device == 'cpu' %}selected{% endif %}>CPU</option><option value="cuda" {% if settings.yolo_device == 'cuda' %}selected{% endif %}>CUDA</option><option value="cuda:0" {% if settings.yolo_device == 'cuda:0' %}selected{% endif %}>CUDA 0</option><option value="cuda:1" {% if settings.yolo_device == 'cuda:1' %}selected{% endif %}>CUDA 1</option><option value="mps" {% if settings.yolo_device == 'mps' %}selected{% endif %}>Apple MPS</option></select></div>
+        <div class="settings-field-full"><label class="form-label">Available models, one per line</label><textarea class="form-control" name="vision_models" rows="7" placeholder="models/yolov8n.pt&#10;models/yolov8s.pt&#10;/models/custom.pt">{{ settings.vision_models|join('\n') }}</textarea></div>
+      </div>
+    </section>
   </div>
-  <button class="btn btn-primary mt-4"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
+
+  <div class="settings-savebar">
+    <button class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
+  </div>
 </form>
 <section class="panel mt-4"><h2>Effective Settings</h2><pre class="output">{{ settings_json }}</pre></section>
 {% endblock %}

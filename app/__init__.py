@@ -289,6 +289,10 @@ def configure_celery(app):
             "duplicate-consolidation-settings-check": {
                 "task": "consolidate_duplicate_memories",
                 "schedule": crontab(minute=0, hour="*"),
+            },
+            "scheduled-health-check-settings-check": {
+                "task": "scheduled_health_check",
+                "schedule": crontab(minute=5, hour="*"),
             }
         },
     )
@@ -299,6 +303,7 @@ def configure_celery(app):
                 return self.run(*args, **kwargs)
 
     celery.Task = ContextTask
+    import app.workers.tasks  # noqa: F401
 
 
 def register_cli(app):
