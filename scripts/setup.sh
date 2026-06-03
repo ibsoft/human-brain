@@ -134,6 +134,16 @@ random_secret() {
   fi
 }
 
+python_cmd() {
+  if have python3.11; then
+    printf '%s\n' "python3.11"
+  elif have python3; then
+    printf '%s\n' "python3"
+  else
+    die "python3 was not found"
+  fi
+}
+
 sql_quote() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
@@ -144,16 +154,20 @@ validate_identifier() {
   [[ "$value" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "$label must start with a letter or underscore and contain only letters, numbers, and underscores"
 }
 
+run_postgres_sql_file() {
+  local sql_file="$1"
+  sudo -u postgres psql -v ON_ERROR_STOP=1 <"$sql_file"
+}
+
 url_quote() {
   local value="$1"
-  if have python3.11; then
-    python3.11 -c 'from urllib.parse import quote; import sys; print(quote(sys.argv[1], safe=""))' "$value"
-  elif have python3; then
-    python3 -c 'from urllib.parse import quote; import sys; print(quote(sys.argv[1], safe=""))' "$value"
-  else
-    [[ "$value" != *[':@/?#[]']* ]] || die "database password contains URL-special characters; install python3.11 so setup can encode it"
-    printf '%s\n' "$value"
-  fi
+  "$(python_cmd)" -c 'from urllib.parse import quote; import sys; print(quote(sys.argv[1], safe=""))' "$value"
+}
+
+url_component() {
+  local url="$1"
+  local component="$2"
+  "$(python_cmd)" -c 'from urllib.parse import urlparse; import sys; parsed = urlparse(sys.argv[1]); print(getattr(parsed, sys.argv[2]) or "")' "$url" "$component"
 }
 
 write_env() {
@@ -236,9 +250,10 @@ prepare_python() {
     warn "Skipping Python dependency setup"
     return
   fi
-  have python3.11 || die "python3.11 was not found"
+  local python
+  python="$(python_cmd)"
   if [[ ! -x "$APP_DIR/.venv/bin/python" ]]; then
-    spin "Creating virtualenv" python3.11 -m venv "$APP_DIR/.venv"
+    spin "Creating virtualenv" "$python" -m venv "$APP_DIR/.venv"
   fi
   spin "Installing core Python dependencies" "$APP_DIR/.venv/bin/python" -m pip install -r "$APP_DIR/requirements-core.txt"
   if confirm "Install optional ML and vision dependencies?" n; then
@@ -256,6 +271,234 @@ seed_demo() {
   if confirm "Create demo workspace, demo agent, and API key?" y; then
     (cd "$APP_DIR" && "$APP_DIR/.venv/bin/python" manage.py seed-demo-data)
   fi
+}
+
+install_nginx_if_missing() {
+  if have nginx; then
+    return
+  fi
+  if ! confirm "nginx was not found. Install it now?" y; then
+    warn "Skipping nginx installation"
+    return 1
+  fi
+  have sudo || die "sudo was not found"
+  sudo -v
+  if have apt-get; then
+    spin "Updating package lists" sudo apt-get update
+    spin "Installing nginx" sudo apt-get install -y nginx
+  elif have dnf; then
+    spin "Installing nginx" sudo dnf install -y nginx
+  elif have yum; then
+    spin "Installing nginx" sudo yum install -y nginx
+  else
+    die "No supported package manager found for nginx installation"
+  fi
+}
+
+apache_cmd() {
+  if have apache2; then
+    printf '%s\n' "apache2"
+  elif have httpd; then
+    printf '%s\n' "httpd"
+  else
+    return 1
+  fi
+}
+
+apache_service_name() {
+  if have apache2; then
+    printf '%s\n' "apache2"
+  else
+    printf '%s\n' "httpd"
+  fi
+}
+
+apache_configtest() {
+  if have apache2ctl; then
+    sudo apache2ctl configtest
+  elif have apachectl; then
+    sudo apachectl configtest
+  else
+    local service
+    service="$(apache_service_name)"
+    sudo "$service" -t
+  fi
+}
+
+install_apache_site() {
+  local url="$1"
+  local scheme host site_name upstream cert_path key_path config_file service
+  scheme="$(url_component "$url" "scheme")"
+  host="$(url_component "$url" "hostname")"
+  [[ -n "$host" ]] || host="$(prompt "Apache server name" "human-brain.local")"
+  site_name="${host//[^A-Za-z0-9_.-]/_}"
+  upstream="$(prompt "Upstream app URL" "http://127.0.0.1:5000")"
+
+  apache_cmd >/dev/null || die "Apache was not found"
+  have sudo || die "sudo was not found"
+  sudo -v
+  service="$(apache_service_name)"
+  if [[ -d /etc/apache2/sites-available ]]; then
+    config_file="/etc/apache2/sites-available/${site_name}.conf"
+  else
+    config_file="/etc/httpd/conf.d/${site_name}.conf"
+  fi
+
+  if have a2enmod; then
+    spin "Enabling Apache proxy modules" sudo a2enmod proxy proxy_http headers rewrite ssl
+  fi
+
+  if [[ "$scheme" == "https" ]]; then
+    cert_path="$(prompt "TLS certificate path" "/etc/apache2/ssl/${site_name}/${site_name}.crt")"
+    key_path="$(prompt "TLS private key path" "/etc/apache2/ssl/${site_name}/${site_name}.key")"
+    [[ -n "$cert_path" ]] || die "TLS certificate path cannot be empty"
+    [[ -n "$key_path" ]] || die "TLS private key path cannot be empty"
+    [[ -f "$cert_path" ]] || warn "Certificate file does not exist yet: $cert_path"
+    [[ -f "$key_path" ]] || warn "Private key file does not exist yet: $key_path"
+    sudo tee "$config_file" >/dev/null <<APACHE
+<VirtualHost *:80>
+    ServerName $host
+    Redirect permanent / https://$host/
+</VirtualHost>
+
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName $host
+    SSLEngine on
+    SSLCertificateFile $cert_path
+    SSLCertificateKeyFile $key_path
+
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "https"
+    ProxyPass / $upstream/
+    ProxyPassReverse / $upstream/
+</VirtualHost>
+</IfModule>
+APACHE
+  else
+    sudo tee "$config_file" >/dev/null <<APACHE
+<VirtualHost *:80>
+    ServerName $host
+
+    ProxyPreserveHost On
+    RequestHeader set X-Forwarded-Proto "http"
+    ProxyPass / $upstream/
+    ProxyPassReverse / $upstream/
+</VirtualHost>
+APACHE
+  fi
+
+  if have a2ensite && [[ "$config_file" == /etc/apache2/sites-available/* ]]; then
+    spin "Enabling Apache site" sudo a2ensite "${site_name}.conf"
+  fi
+  spin "Testing Apache configuration" apache_configtest
+  if have systemctl; then
+    spin "Enabling Apache" sudo systemctl enable "$service"
+    spin "Reloading Apache" sudo systemctl reload "$service"
+  else
+    spin "Reloading Apache" sudo "$service" -k graceful
+  fi
+  ok "Installed Apache site $config_file"
+}
+
+install_nginx_site() {
+  local url="$1"
+  local scheme host site_name upstream cert_path key_path config_file enabled_file
+  scheme="$(url_component "$url" "scheme")"
+  host="$(url_component "$url" "hostname")"
+  [[ -n "$host" ]] || host="$(prompt "nginx server name" "human-brain.local")"
+  site_name="${host//[^A-Za-z0-9_.-]/_}"
+  upstream="$(prompt "Upstream app URL" "http://127.0.0.1:5000")"
+
+  install_nginx_if_missing || return
+  have sudo || die "sudo was not found"
+  sudo -v
+  if [[ -d /etc/nginx/sites-available ]]; then
+    config_file="/etc/nginx/sites-available/${site_name}.conf"
+    enabled_file="/etc/nginx/sites-enabled/${site_name}.conf"
+  else
+    config_file="/etc/nginx/conf.d/${site_name}.conf"
+    enabled_file=""
+  fi
+
+  if [[ "$scheme" == "https" ]]; then
+    cert_path="$(prompt "TLS certificate path" "/etc/nginx/ssl/${site_name}/${site_name}.crt")"
+    key_path="$(prompt "TLS private key path" "/etc/nginx/ssl/${site_name}/${site_name}.key")"
+    [[ -n "$cert_path" ]] || die "TLS certificate path cannot be empty"
+    [[ -n "$key_path" ]] || die "TLS private key path cannot be empty"
+    [[ -f "$cert_path" ]] || warn "Certificate file does not exist yet: $cert_path"
+    [[ -f "$key_path" ]] || warn "Private key file does not exist yet: $key_path"
+    sudo tee "$config_file" >/dev/null <<NGINX
+server {
+    listen 80;
+    server_name $host;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $host;
+    client_max_body_size 25m;
+
+    ssl_certificate $cert_path;
+    ssl_certificate_key $key_path;
+
+    location / {
+        proxy_pass $upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+NGINX
+  else
+    sudo tee "$config_file" >/dev/null <<NGINX
+server {
+    listen 80;
+    server_name $host;
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass $upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto http;
+    }
+}
+NGINX
+  fi
+
+  if [[ -n "$enabled_file" && -d /etc/nginx/sites-enabled ]]; then
+    sudo ln -sf "$config_file" "$enabled_file"
+  fi
+  spin "Testing nginx configuration" sudo nginx -t
+  if have systemctl; then
+    spin "Enabling nginx" sudo systemctl enable nginx
+    spin "Reloading nginx" sudo systemctl reload nginx
+  else
+    spin "Reloading nginx" sudo nginx -s reload
+  fi
+  ok "Installed nginx site $config_file"
+}
+
+install_reverse_proxy_site() {
+  local url="$1"
+  if have nginx; then
+    install_nginx_site "$url"
+    return
+  fi
+  if apache_cmd >/dev/null; then
+    warn "Apache is installed and nginx is not installed."
+    if confirm "Install Apache reverse proxy config instead of nginx?" y; then
+      install_apache_site "$url"
+      return
+    fi
+  fi
+  install_nginx_site "$url"
 }
 
 create_postgres_database() {
@@ -293,7 +536,7 @@ GRANT ALL PRIVILEGES ON DATABASE "$db_name" TO "$db_user";
 SQL
   log "Requesting sudo for PostgreSQL administration"
   sudo -v
-  spin "Creating PostgreSQL user and database" sudo -u postgres psql -v ON_ERROR_STOP=1 -f "$sql_file"
+  spin "Creating PostgreSQL user and database" run_postgres_sql_file "$sql_file"
   rm -f "$sql_file"
   trap - RETURN
 }
@@ -353,6 +596,9 @@ setup_production() {
 
   if [[ "$SKIP_SYSTEMD" -eq 0 ]] && confirm "Install and start systemd service?" y; then
     "$APP_DIR/scripts/install_systemd.sh" --skip-deps --skip-migrations
+  fi
+  if confirm "Install or update web reverse proxy config?" y; then
+    install_reverse_proxy_site "$url"
   fi
   ok "Native production setup complete"
 }

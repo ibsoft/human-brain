@@ -1,7 +1,7 @@
 """add health check runs
 
 Revision ID: a7b8c9d0e1f2
-Revises: f6a7b8c9d0e1
+Revises: e11602352b13
 Create Date: 2026-06-03 09:05:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "a7b8c9d0e1f2"
-down_revision = "f6a7b8c9d0e1"
+down_revision = "e11602352b13"
 branch_labels = None
 depends_on = None
 

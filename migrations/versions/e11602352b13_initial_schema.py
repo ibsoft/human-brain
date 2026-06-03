@@ -1,4 +1,4 @@
-"""initial schema
+"""make memory vector lookup indexes unique
 
 Revision ID: e11602352b13
 Revises: f6a7b8c9d0e1
