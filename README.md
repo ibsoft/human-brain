@@ -50,6 +50,27 @@ SQLAlchemy models and need to create a new migration.
 Open `$HUMAN_BRAIN_URL`.
 On first launch, `/login` redirects to `/setup` so you can create the first admin account in the browser.
 
+## Admin Account Lockout
+
+User login is protected by a temporary account lockout. After 5 failed password
+attempts, the account is locked for a short period. The lock duration grows with
+additional failed attempts, up to 30 minutes.
+
+To unlock an account from the server:
+
+```bash
+flask --app manage:app unlock-user --email admin@example.com
+```
+
+If you are using the project virtualenv directly:
+
+```bash
+.venv/bin/flask --app manage:app unlock-user --email admin@example.com
+```
+
+The command clears `failed_login_count` and `locked_until` for that user. It does
+not change the password or MFA settings.
+
 ## Demo And Sample Data
 
 Create the default demo workspace, demo agent, and demo API key:

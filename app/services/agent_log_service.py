@@ -1,6 +1,7 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app
 
@@ -56,13 +57,12 @@ class AgentLogService:
         start = max(page - 1, 0) * per_page
         return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
 
-    def completed_request_duration_chart(self, agent_names=None, hours=24):
+    def completed_request_duration_chart(self, agent_names=None, hours=24, timezone_name=None):
         agent_names = agent_names or {}
-        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-        buckets = [now - timedelta(hours=offset) for offset in range(hours - 1, -1, -1)]
-        bucket_keys = [bucket.strftime("%Y-%m-%dT%H:00:00") for bucket in buckets]
+        target_timezone = self._chart_timezone(timezone_name)
+        now = datetime.now(target_timezone)
+        window_start = now - timedelta(hours=hours)
         series = {}
-        cutoff = buckets[0]
         for record in self._iter_records():
             try:
                 status = int(record.get("status") or 0)
@@ -74,33 +74,55 @@ class AgentLogService:
             if agent_id in (None, ""):
                 continue
             ts = self._parse_ts(record.get("ts"))
-            if not ts or ts < cutoff:
+            if not ts:
+                continue
+            local_ts = self._to_timezone(ts, target_timezone)
+            if local_ts < window_start or local_ts > now:
                 continue
             duration_ms = self._record_duration_ms(record)
             if duration_ms is None:
                 continue
-            bucket_key = ts.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:00:00")
-            if bucket_key not in bucket_keys:
-                continue
             agent_key = str(agent_id)
             agent_series = series.setdefault(
                 agent_key,
-                {"label": self._agent_label(agent_id, agent_names), "points": {}},
+                {"label": self._agent_label(agent_id, agent_names), "points": []},
             )
-            total, count = agent_series["points"].get(bucket_key, (0.0, 0))
-            agent_series["points"][bucket_key] = (total + duration_ms, count + 1)
+            agent_series["points"].append(
+                {
+                    "x": round((local_ts - window_start).total_seconds() / 60, 2),
+                    "y": round(duration_ms, 2),
+                }
+            )
         datasets = []
         for agent_key, agent_series in sorted(series.items(), key=lambda item: item[1]["label"]):
             datasets.append(
                 {
                     "label": agent_series["label"],
-                    "values": [
-                        round(total / count, 2) if count else None
-                        for total, count in (agent_series["points"].get(bucket_key, (0.0, 0)) for bucket_key in bucket_keys)
-                    ],
+                    "points": sorted(agent_series["points"], key=lambda point: point["x"]),
                 }
             )
-        return {"labels": [bucket.strftime("%H:%M") for bucket in buckets], "datasets": datasets}
+        point_count = sum(len(dataset["points"]) for dataset in datasets)
+        return {
+            "x_max": hours * 60,
+            "start_minute_of_day": window_start.hour * 60 + window_start.minute,
+            "point_count": point_count,
+            "datasets": datasets,
+        }
+
+    def _chart_timezone(self, timezone_name=None):
+        if not timezone_name:
+            from app.services.settings_service import SettingsService
+
+            timezone_name = SettingsService.get("display_timezone", "UTC")
+        try:
+            return ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            return timezone.utc
+
+    def _to_timezone(self, value, target_timezone):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(target_timezone)
 
     def _agent_label(self, agent_id, agent_names):
         agent_key = str(agent_id)
