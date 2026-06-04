@@ -606,8 +606,10 @@ if(document.getElementById("activityChart")){
   const dashboardCharts=dashboardDataEl ? JSON.parse(dashboardDataEl.textContent) : {};
   const palette=["#38e88f","#9cffcb","#f2c94c","#ff8aa0","#7dd3fc","#d69cff","#f59e0b","#22c55e"];
   const chartOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:"#dcecff"}}},scales:{x:{ticks:{color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}},y:{beginAtZero:true,ticks:{precision:0,color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}}}};
+  const requestSpeedOptions={...chartOptions,scales:{...chartOptions.scales,x:{type:"linear",min:0,ticks:{color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}},y:{...chartOptions.scales.y,title:{display:true,text:"ms",color:"#98b9aa"}}}};
   const doughnutOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#dcecff",boxWidth:12}}}};
-  const emptyPlugin={id:"emptyChart",afterDraw(chart){const values=chart.data.datasets.flatMap(dataset=>dataset.data||[]);if(values.some(value=>Number(value)>0)) return;const {ctx,chartArea}=chart;if(!chartArea) return;ctx.save();ctx.fillStyle="#74889e";ctx.font="13px system-ui";ctx.textAlign="center";ctx.fillText("No data yet",chartArea.left+chartArea.width/2,chartArea.top+chartArea.height/2);ctx.restore();}};
+  const emptyPlugin={id:"emptyChart",afterDraw(chart){const values=chart.data.datasets.flatMap(dataset=>dataset.data||[]).map(value=>typeof value==="object"?value.y:value);if(values.some(value=>Number(value)>0)) return;const {ctx,chartArea}=chart;if(!chartArea) return;ctx.save();ctx.fillStyle="#74889e";ctx.font="13px system-ui";ctx.textAlign="center";ctx.fillText("No data yet",chartArea.left+chartArea.width/2,chartArea.top+chartArea.height/2);ctx.restore();}};
+  const spikePlugin={id:"requestSpikes",afterDatasetsDraw(chart){if(chart.canvas.id!=="agentRequestSpeedChart") return;const {ctx,scales:{y}}=chart;const base=y.getPixelForValue(0);chart.data.datasets.forEach((dataset,datasetIndex)=>{const meta=chart.getDatasetMeta(datasetIndex);ctx.save();ctx.strokeStyle=dataset.borderColor;ctx.fillStyle=dataset.borderColor;ctx.lineWidth=2;meta.data.forEach(point=>{ctx.beginPath();ctx.moveTo(point.x,base);ctx.lineTo(point.x,point.y);ctx.stroke();ctx.beginPath();ctx.arc(point.x,point.y,2.4,0,Math.PI*2);ctx.fill();});ctx.restore();});}};
   const dataset=(key)=>dashboardCharts[key]||{labels:[],values:[]};
   const build=(id,type,key,label,options=chartOptions)=>{
     const target=document.getElementById(id);
@@ -615,7 +617,29 @@ if(document.getElementById("activityChart")){
     const data=dataset(key);
     new Chart(target,{type,data:{labels:data.labels||[],datasets:[{label,data:data.values||[],borderColor:palette[0],backgroundColor:type==="line"?"rgba(56,232,143,.16)":palette,fill:type==="line",tension:.35}]},options,plugins:[emptyPlugin]});
   };
+  const buildSpikeChart=(id,key,options=chartOptions)=>{
+    const target=document.getElementById(id);
+    if(!target) return;
+    const data=dataset(key);
+    const startMinute=Number(data.start_minute_of_day||0);
+    const formatMinute=value=>{
+      const total=(startMinute+Math.round(Number(value)||0)+1440*10)%1440;
+      return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
+    };
+    const spikeOptions={...options,scales:{...options.scales,x:{...options.scales.x,max:Number(data.x_max||1440),ticks:{...options.scales.x.ticks,callback:formatMinute}}},plugins:{...options.plugins,tooltip:{callbacks:{title:items=>items.length?formatMinute(items[0].parsed.x):"",label:item=>`${item.dataset.label}: ${item.parsed.y} ms`}}}};
+    const datasets=(data.datasets||[]).map((series,index)=>{
+      const color=palette[index%palette.length];
+      const points=series.points||((series.values||[]).map((value,valueIndex)=>{
+        if(value===null||value===undefined||value==="") return null;
+        const step=Number(data.x_max||1440)/Math.max((series.values||[]).length-1,1);
+        return {x:Math.round(valueIndex*step*100)/100,y:Number(value)};
+      }).filter(Boolean));
+      return {label:series.label,data:points,borderColor:color,backgroundColor:color,pointRadius:0,pointHoverRadius:5,showLine:false};
+    });
+    new Chart(target,{type:"scatter",data:{datasets},options:spikeOptions,plugins:[emptyPlugin,spikePlugin]});
+  };
   build("activityChart","line","activity","Memory writes");
+  buildSpikeChart("agentRequestSpeedChart","agent_request_speed",requestSpeedOptions);
   build("typeChart","bar","types","Memories");
   build("sensitivityChart","doughnut","sensitivity","Memories",doughnutOptions);
   build("workspaceChart","bar","workspaces","Memories");

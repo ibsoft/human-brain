@@ -24,6 +24,23 @@ def test_auth_login(client):
     assert res.status_code == 200
 
 
+def test_unlock_user_cli_clears_login_lock(app):
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        user.failed_login_count = 5
+        user.locked_until = datetime.utcnow() + timedelta(minutes=10)
+        db.session.commit()
+
+    result = app.test_cli_runner().invoke(args=["unlock-user", "--email", "admin@example.com"])
+
+    assert result.exit_code == 0
+    assert "Unlocked user admin@example.com" in result.output
+    with app.app_context():
+        user = User.query.filter_by(email="admin@example.com").one()
+        assert user.failed_login_count == 0
+        assert user.locked_until is None
+
+
 def test_profile_password_change_updates_current_user_login(client):
     client.post("/login", data={"email": "admin@example.com", "password": "password"})
     res = client.post(

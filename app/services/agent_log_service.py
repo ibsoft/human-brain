@@ -1,6 +1,7 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app
 
@@ -56,6 +57,81 @@ class AgentLogService:
         start = max(page - 1, 0) * per_page
         return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
 
+    def completed_request_duration_chart(self, agent_names=None, hours=24, timezone_name=None):
+        agent_names = agent_names or {}
+        target_timezone = self._chart_timezone(timezone_name)
+        now = datetime.now(target_timezone)
+        window_start = now - timedelta(hours=hours)
+        series = {}
+        for record in self._iter_records():
+            try:
+                status = int(record.get("status") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not (200 <= status < 400):
+                continue
+            agent_id = record.get("agent_id")
+            if agent_id in (None, ""):
+                continue
+            ts = self._parse_ts(record.get("ts"))
+            if not ts:
+                continue
+            local_ts = self._to_timezone(ts, target_timezone)
+            if local_ts < window_start or local_ts > now:
+                continue
+            duration_ms = self._record_duration_ms(record)
+            if duration_ms is None:
+                continue
+            agent_key = str(agent_id)
+            agent_series = series.setdefault(
+                agent_key,
+                {"label": self._agent_label(agent_id, agent_names), "points": []},
+            )
+            agent_series["points"].append(
+                {
+                    "x": round((local_ts - window_start).total_seconds() / 60, 2),
+                    "y": round(duration_ms, 2),
+                }
+            )
+        datasets = []
+        for agent_key, agent_series in sorted(series.items(), key=lambda item: item[1]["label"]):
+            datasets.append(
+                {
+                    "label": agent_series["label"],
+                    "points": sorted(agent_series["points"], key=lambda point: point["x"]),
+                }
+            )
+        point_count = sum(len(dataset["points"]) for dataset in datasets)
+        return {
+            "x_max": hours * 60,
+            "start_minute_of_day": window_start.hour * 60 + window_start.minute,
+            "point_count": point_count,
+            "datasets": datasets,
+        }
+
+    def _chart_timezone(self, timezone_name=None):
+        if not timezone_name:
+            from app.services.settings_service import SettingsService
+
+            timezone_name = SettingsService.get("display_timezone", "UTC")
+        try:
+            return ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, TypeError, ValueError):
+            return timezone.utc
+
+    def _to_timezone(self, value, target_timezone):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(target_timezone)
+
+    def _agent_label(self, agent_id, agent_names):
+        agent_key = str(agent_id)
+        if agent_key in agent_names:
+            return agent_names[agent_key]
+        if agent_key.isdigit() and int(agent_key) in agent_names:
+            return agent_names[int(agent_key)]
+        return f"Agent {agent_id}"
+
     def _decode_for_display(self, value):
         if isinstance(value, dict):
             return {key: self._decode_for_display(item) for key, item in value.items()}
@@ -69,6 +145,40 @@ class AgentLogService:
                 except ValueError:
                     return value
         return value
+
+    def _iter_records(self):
+        for path in sorted(self.log_dir.glob("agent_api*.jsonl"), reverse=True):
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    try:
+                        yield json.loads(line)
+                    except ValueError:
+                        continue
+
+    def _parse_ts(self, value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+
+    def _record_duration_ms(self, record):
+        try:
+            if record.get("duration_ms") is not None:
+                return float(record["duration_ms"])
+        except (TypeError, ValueError):
+            return None
+        response = self._decode_for_display(record.get("response"))
+        if isinstance(response, dict):
+            timing = response.get("timing") or {}
+            for key in ("total_ms", "elapsed_ms"):
+                try:
+                    if timing.get(key) is not None:
+                        return float(timing[key])
+                except (TypeError, ValueError):
+                    continue
+        return None
 
     def _active_path(self):
         return self.log_dir / "agent_api.jsonl"

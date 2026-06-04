@@ -3,6 +3,7 @@ import logging
 import sys
 from datetime import datetime, timezone
 from logging.config import dictConfig
+from time import perf_counter
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Flask
@@ -109,6 +110,7 @@ def register_agent_api_logging(app):
             "remote_addr": request.headers.get("X-Forwarded-For", request.remote_addr),
             "body": body,
             "content_type": request.content_type,
+            "_started_at": perf_counter(),
         }
 
     @app.after_request
@@ -129,6 +131,7 @@ def register_agent_api_logging(app):
                 {
                     "status": response.status_code,
                     "agent_id": getattr(getattr(g, "agent", None), "id", None),
+                    "duration_ms": round((perf_counter() - record.pop("_started_at", perf_counter())) * 1000, 2),
                     "response": _api_log_payload(response_body),
                 }
             )

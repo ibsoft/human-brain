@@ -48,6 +48,18 @@ def register_commands(app):
         db.session.commit()
         click.echo(f"Created admin {email}")
 
+    @app.cli.command("unlock-user")
+    @click.option("--email", required=True, help="Email address of the user to unlock.")
+    def unlock_user(email):
+        require_migrated_database()
+        user = User.query.filter_by(email=email.strip().lower()).first()
+        if not user:
+            raise click.ClickException(f"User not found: {email}")
+        user.failed_login_count = 0
+        user.locked_until = None
+        db.session.commit()
+        click.echo(f"Unlocked user {user.email}")
+
     @app.cli.command("seed-demo-data")
     def seed_demo_data():
         require_migrated_database()

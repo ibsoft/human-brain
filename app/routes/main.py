@@ -1,6 +1,7 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
@@ -19,6 +20,19 @@ from app.services.settings_service import SettingsService
 from app.services.vision_service import VisionService
 
 main_bp = Blueprint("main", __name__)
+
+
+def display_timezone():
+    try:
+        return ZoneInfo(SettingsService.get("display_timezone", "UTC"))
+    except (ZoneInfoNotFoundError, TypeError, ValueError):
+        return timezone.utc
+
+
+def utc_to_local(value, target_timezone):
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(target_timezone)
 
 
 @main_bp.route("/")
@@ -47,12 +61,15 @@ def dashboard():
         for tag in memory.tags or []:
             top_tags[tag] = top_tags.get(tag, 0) + 1
     top_tags = dict(sorted(top_tags.items(), key=lambda item: (-item[1], item[0]))[:20])
-    today = datetime.utcnow().date()
+    target_timezone = display_timezone()
+    timezone_name = getattr(target_timezone, "key", "UTC")
+    today = datetime.now(target_timezone).date()
     chart_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
-    chart_start = datetime.combine(chart_days[0], datetime.min.time())
+    chart_start_local = datetime.combine(chart_days[0], time.min, tzinfo=target_timezone)
+    chart_start = chart_start_local.astimezone(timezone.utc).replace(tzinfo=None)
     writes_by_day = {day.isoformat(): 0 for day in chart_days}
     for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= chart_start).all():
-        key = memory.created_at.date().isoformat()
+        key = utc_to_local(memory.created_at, target_timezone).date().isoformat()
         if key in writes_by_day:
             writes_by_day[key] += 1
     activity_chart = {
@@ -82,8 +99,10 @@ def dashboard():
             trust_buckets["0.6-0.8"] += 1
         else:
             trust_buckets["0.8-1.0"] += 1
+    agent_names = {agent.id: agent.name for agent in Agent.query.all()}
     dashboard_charts = {
         "activity": activity_chart,
+        "agent_request_speed": AgentLogService().completed_request_duration_chart(agent_names=agent_names, hours=24, timezone_name=timezone_name),
         "types": {"labels": list(memory_types.keys()), "values": list(memory_types.values())},
         "sensitivity": {"labels": list(sensitivity.keys()), "values": list(sensitivity.values())},
         "workspaces": {"labels": list(workspace_counts.keys()), "values": list(workspace_counts.values())},

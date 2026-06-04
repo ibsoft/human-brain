@@ -56,6 +56,7 @@ if __name__ == "__main__":
                 "seed-sample-data",
                 "purge-sample-data",
                 "rebuild-correlations",
+                "unlock-user",
             }:
                 invoke_app_command(command, args)
             else:
