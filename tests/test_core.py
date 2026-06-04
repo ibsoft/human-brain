@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import render_template
 
 from app.extensions import db
-from app.models import Agent, AuditLog, HealthCheckRun, Memory, MemoryAsset, SessionMessage, User, Workspace
+from app.models import Agent, AuditLog, HealthCheckRun, Memory, MemoryAsset, MemoryCorrelation, SessionMessage, User, Workspace
 from app.services.agent_log_service import AgentLogService
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
@@ -1081,6 +1081,392 @@ def test_sensitive_memory_filtering(client, app, api_headers):
     client.post("/api/v1/memory/add", json={**base, "content": "secret token is not injectable", "memory_type": "security_findings", "sensitivity_level": "secret"}, headers=api_headers)
     ctx = client.post("/api/v1/context/build", json={**base, "prompt": "token", "top_k": 3, "sensitivity_policy": "strict"}, headers=api_headers)
     assert "secret token" not in ctx.get_json()["context"]
+
+
+def test_context_correlations_must_match_prompt(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    wife_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Yannis wife", "content": "Yannis's wife is Irene.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    father_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Yannis father", "content": "Yannis's father Thanasis was a farmer.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    with app.app_context():
+        MemoryCorrelation.query.delete()
+        db.session.add(
+            MemoryCorrelation(
+                workspace_id=base["workspace_id"],
+                source_memory_id=wife_id,
+                target_memory_id=father_id,
+                strength=0.9,
+                explanation="test parent relation",
+            )
+        )
+        db.session.commit()
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [
+            {"memory_id": father_id, "semantic_score": 0.8, "vector_id": 1, "raw_score": 0.8},
+            {"memory_id": wife_id, "semantic_score": 0.7, "vector_id": 2, "raw_score": 0.7},
+        ]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "wife", "top_k": 3, "include_correlations": True, "correlation_limit": 5},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    payload = ctx.get_json()
+    context = payload["context"]
+    assert "Yannis's wife is Irene" in context
+    assert "father Thanasis" not in context
+    assert payload["policy"]["used_tokens"] > 0
+    assert payload["policy"]["remaining_tokens"] == payload["policy"]["max_tokens"] - payload["policy"]["used_tokens"]
+
+
+def test_context_short_query_falls_back_to_semantic_when_no_lexical_match(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    spouse_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Yannis profile", "content": "Yannis is husband to Irene.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": spouse_id, "semantic_score": 0.8, "vector_id": 1, "raw_score": 0.8}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "what is my wifes name?", "top_k": 3, "include_correlations": True},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    payload = ctx.get_json()
+    assert "husband to Irene" in payload["context"]
+    assert payload["policy"]["used_tokens"] > 0
+
+
+def test_context_query_normalization_does_not_inflate_match_terms(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    memory_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Relationship note", "content": "The stored relationship word is wife.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": memory_id, "semantic_score": 0.65, "vector_id": 1, "raw_score": 0.65}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "what is my wifes name?", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    assert "relationship word is wife" in ctx.get_json()["context"]
+
+
+def test_context_short_query_uses_partial_term_evidence_with_typo(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    origin_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Origin", "content": "User's place of origin is Ekkara.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    car_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "User car", "content": "User has a Toyota car.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": origin_id, "semantic_score": 0.72, "vector_id": 1, "raw_score": 0.72}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "what king of car I have?", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    context = ctx.get_json()["context"]
+    assert "Toyota car" in context
+    assert "Ekkara" not in context
+    assert ctx.get_json()["policy"]["selection"]["mode"] == "lexical_rescue"
+
+
+def test_context_short_query_does_not_dump_low_confidence_semantic_noise(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    origin_id = client.post(
+        "/api/v1/memory/add",
+        json={**base, "title": "Origin", "content": "User's place of origin is Ekkara.", "memory_type": "facts", "confirmed": True},
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": origin_id, "semantic_score": 0.72, "vector_id": 1, "raw_score": 0.72}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "what king of car I have?", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    assert ctx.get_json()["context"] == ""
+
+
+def test_context_build_searches_workspace_not_only_requesting_agent(client, app, api_headers, monkeypatch):
+    with app.app_context():
+        workspace_id = app.config["TEST_WORKSPACE_ID"]
+        other_agent = Agent(name="Other Agent")
+        db.session.add(other_agent)
+        db.session.flush()
+        other_agent_id = other_agent.id
+        memory = Memory(
+            agent_id=other_agent_id,
+            workspace_id=workspace_id,
+            title="Vehicle note",
+            content="User has a Toyota car.",
+            memory_type="facts",
+            content_hash=sha256_text("User has a Toyota car."),
+            trust_score=0.5,
+            importance_score=0.5,
+            confirmed=True,
+            pending_approval=False,
+        )
+        db.session.add(memory)
+        db.session.flush()
+        memory_id = memory.id
+        db.session.commit()
+    requesting = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": workspace_id}
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return [{"memory_id": memory_id, "semantic_score": 0.7, "vector_id": 1, "raw_score": 0.7}]
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**requesting, "prompt": "what kind of car I have?", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    assert "Toyota car" in ctx.get_json()["context"]
+
+
+def test_context_lexical_rescue_includes_stored_correlations(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    song_id = client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Favorite song",
+            "content": "User's favorite song is To Vals Ton Oniron.",
+            "memory_type": "facts",
+            "confirmed": True,
+        },
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    asset_id = client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Audio asset",
+            "content": "Uploaded audio asset for the favorite track.",
+            "memory_type": "facts",
+            "confirmed": True,
+        },
+        headers=api_headers,
+    ).get_json()["memory"]["id"]
+    with app.app_context():
+        MemoryCorrelation.query.delete()
+        db.session.add(
+            MemoryCorrelation(
+                workspace_id=base["workspace_id"],
+                source_memory_id=min(song_id, asset_id),
+                target_memory_id=max(song_id, asset_id),
+                strength=0.8,
+                explanation="test stored relation",
+            )
+        )
+        db.session.commit()
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return []
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "what song I like?", "top_k": 1, "include_correlations": True, "correlation_limit": 5},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    payload = ctx.get_json()
+    assert payload["policy"]["selection"]["mode"] in {"lexical_rescue", "semantic_prompt_evidence"}
+    assert payload["memories"][0]["correlations"]
+    assert payload["memories"][0]["correlations"][0]["related_memory"]["id"] == asset_id
+
+
+def test_context_lexical_rescue_supports_unicode_greek_prompt(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Book chunk 1",
+            "content": "Αυτό το κείμενο από βιβλίο μου αρέσει και περιέχει γενικές σημειώσεις.",
+            "memory_type": "project",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Book chunk 3",
+            "content": "Άλλο απόσπασμα που μου αρέσει από το χειρόγραφο.",
+            "memory_type": "project",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Αγαπημένο τραγούδι",
+            "content": "Το αγαπημένο τραγούδι του χρήστη είναι Το Βαλς των Ονείρων.",
+            "memory_type": "facts",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return []
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "Τι τραγουδι μου αρέσει;", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    payload = ctx.get_json()
+    assert "Το Βαλς των Ονείρων" in payload["context"]
+    assert "βιβλίο" not in payload["context"]
+    assert "χειρόγραφο" not in payload["context"]
+    assert "τραγουδι" in payload["policy"]["selection"]["prompt_terms"]
+    assert payload["policy"]["selection"]["mode"] == "lexical_rescue"
+
+
+def test_context_greek_query_does_not_return_weak_common_term_chunks(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Book chunk 1",
+            "content": "Αυτό το κείμενο από βιβλίο μου αρέσει και περιέχει γενικές σημειώσεις.",
+            "memory_type": "project",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Favorite song",
+            "content": "User's favorite song is To Vals Ton Oniron.",
+            "memory_type": "facts",
+            "confirmed": True,
+            "trust_score": 0.8,
+        },
+        headers=api_headers,
+    )
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return []
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    ctx = client.post(
+        "/api/v1/context/build",
+        json={**base, "prompt": "Τι τραγουδι μου αρέσει;", "top_k": 3},
+        headers=api_headers,
+    )
+    assert ctx.status_code == 200
+    payload = ctx.get_json()
+    assert "βιβλίο" not in payload["context"]
+    assert payload["policy"]["selection"]["mode"] in {"empty", "background_fallback"}
+
+
+def test_memory_search_uses_normalized_specific_keyword_fallback(client, app, api_headers, monkeypatch):
+    base = {"agent_id": app.config["TEST_AGENT_ID"], "workspace_id": app.config["TEST_WORKSPACE_ID"]}
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Book chunk 1",
+            "content": "Αυτό το κείμενο από βιβλίο μου αρέσει και περιέχει γενικές σημειώσεις.",
+            "memory_type": "project",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Book chunk 3",
+            "content": "Άλλο απόσπασμα που μου αρέσει από το χειρόγραφο.",
+            "memory_type": "project",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+    client.post(
+        "/api/v1/memory/add",
+        json={
+            **base,
+            "title": "Αγαπημένο τραγούδι",
+            "content": "Το αγαπημένο τραγούδι του χρήστη είναι Το Βαλς των Ονείρων.",
+            "memory_type": "facts",
+            "confirmed": True,
+            "trust_score": 0.5,
+        },
+        headers=api_headers,
+    )
+
+    def fake_search(self, workspace_id, query_vector, top_k, timing=None):
+        return []
+
+    monkeypatch.setattr("app.services.faiss_service.FaissService.search", fake_search)
+    res = client.post(
+        "/api/v1/memory/search",
+        json={**base, "query": "Τι τραγουδι μου αρέσει;", "top_k": 3, "include_timing": True},
+        headers=api_headers,
+    )
+    assert res.status_code == 200
+    payload = res.get_json()
+    assert payload["results"]
+    assert "Το Βαλς των Ονείρων" in payload["results"][0]["memory"]["content"]
+    assert "βιβλίο" not in payload["results"][0]["memory"]["content"]
+
 
 def test_faiss_rebuild(client, app, api_headers):
     from app.services.embedding_service import EmbeddingService

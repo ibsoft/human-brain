@@ -1,4 +1,6 @@
+import math
 import re
+import unicodedata
 from datetime import datetime
 from time import perf_counter
 
@@ -135,50 +137,38 @@ class MemoryService:
         now = datetime.utcnow()
         min_semantic_score = float(payload.get("min_semantic_score", 0.25))
         min_keyword_score = float(payload.get("min_keyword_score", 0.5))
-        for memory in memories:
-            recency = 1 / max((now - memory.created_at).days + 1, 1)
-            keyword_score = self._keyword_score(keyword, memory)
-            semantic_score = semantic_hits.get(memory.id, 0.0)
-            if semantic_hits and semantic_score <= 0:
-                continue
-            if semantic_hits and semantic_score < min_semantic_score:
-                continue
-            if not semantic_hits and keyword_score < min_keyword_score:
-                continue
-            score = (
-                max(semantic_score, 0.0) * 0.60
-                + keyword_score * 0.15
-                + memory.trust_score * 0.10
-                + memory.importance_score * 0.10
-                + recency * 0.05
-            )
-            if score >= float(payload.get("min_relevance_score", 0.18)):
-                ranked.append((score, memory, semantic_score, vector_hits.get(memory.id)))
+        if not semantic_hits and terms:
+            normalized_memories = base_query.order_by(Memory.updated_at.desc()).limit(max(candidate_limit, 500)).all()
+            ranked = self._normalized_keyword_rank(normalized_memories, terms, now, payload)
+        else:
+            for memory in memories:
+                recency = 1 / max((now - memory.created_at).days + 1, 1)
+                keyword_score = self._keyword_score(keyword, memory)
+                semantic_score = semantic_hits.get(memory.id, 0.0)
+                if semantic_hits and semantic_score <= 0:
+                    continue
+                if semantic_hits and semantic_score < min_semantic_score:
+                    continue
+                if not semantic_hits and keyword_score < min_keyword_score:
+                    continue
+                score = (
+                    max(semantic_score, 0.0) * 0.60
+                    + keyword_score * 0.15
+                    + memory.trust_score * 0.10
+                    + memory.importance_score * 0.10
+                    + recency * 0.05
+                )
+                if score >= float(payload.get("min_relevance_score", 0.18)):
+                    ranked.append((score, memory, semantic_score, vector_hits.get(memory.id)))
         ranked.sort(key=lambda item: item[0], reverse=True)
         ranked = ranked[: int(payload.get("top_k", 20))]
         timing["rerank_ms"] = round((perf_counter() - stage) * 1000, 2)
         if not ranked and terms:
             fallback_started = perf_counter()
-            fallback_memories = (
-                base_query.filter(or_(*clauses))
-                .order_by(Memory.updated_at.desc())
-                .limit(candidate_limit)
-                .all()
-            )
+            fallback_memories = base_query.order_by(Memory.updated_at.desc()).limit(max(candidate_limit, 500)).all()
             timing["keyword_fallback_ms"] = round((perf_counter() - fallback_started) * 1000, 2)
             stage = perf_counter()
-            ranked = []
-            fallback_keyword_floor = float(
-                payload.get("min_keyword_fallback_score", self._keyword_fallback_floor(bool(semantic_hits), terms))
-            )
-            for memory in fallback_memories:
-                recency = 1 / max((now - memory.created_at).days + 1, 1)
-                keyword_score = self._keyword_score(keyword, memory)
-                if keyword_score < fallback_keyword_floor:
-                    continue
-                score = keyword_score * 0.70 + memory.trust_score * 0.10 + memory.importance_score * 0.10 + recency * 0.10
-                if score >= float(payload.get("min_relevance_score", 0.18)):
-                    ranked.append((score, memory, 0.0, None))
+            ranked = self._normalized_keyword_rank(fallback_memories, terms, now, payload)
             ranked.sort(key=lambda item: item[0], reverse=True)
             ranked = ranked[: int(payload.get("top_k", 20))]
             timing["rerank_ms"] = round(timing["rerank_ms"] + ((perf_counter() - stage) * 1000), 2)
@@ -332,7 +322,7 @@ class MemoryService:
         return content[:1200]
 
     def _apply_filters(self, query, payload):
-        if payload.get("agent_id"):
+        if payload.get("agent_id") and payload.get("filter_agent_id", True):
             query = query.filter(Memory.agent_id == int(payload["agent_id"]))
         if payload.get("memory_types"):
             query = query.filter(Memory.memory_type.in_(payload["memory_types"]))
@@ -364,6 +354,43 @@ class MemoryService:
             return 0.75
         return 0.65
 
+    def _normalized_keyword_rank(self, memories, query_terms, now, payload):
+        prompt_terms = set(query_terms)
+        if not prompt_terms:
+            return []
+        candidates = []
+        document_frequencies = {term: 0 for term in prompt_terms}
+        for memory in memories:
+            terms = set(self._query_terms(f"{memory.title} {memory.summary or ''} {memory.content} {' '.join(memory.tags or [])}"))
+            matches = prompt_terms & terms
+            if not matches:
+                continue
+            candidates.append((memory, matches))
+            for term in matches:
+                document_frequencies[term] += 1
+        if not candidates:
+            return []
+        total = len(candidates)
+        weights = {
+            term: (1.0 + math.log((total + 1) / (document_frequencies.get(term, 0) + 1))) * max(len(term), 1)
+            for term in prompt_terms
+        }
+        supported_terms = set().union(*(matches for _, matches in candidates))
+        max_supported_weight = max(weights[term] for term in supported_terms)
+        specific_terms = {term for term in supported_terms if weights[term] >= max_supported_weight * 0.9}
+        if specific_terms:
+            candidates = [(memory, matches) for memory, matches in candidates if matches & specific_terms]
+        total_weight = sum(weights.values()) or 1.0
+        ranked = []
+        min_relevance = float(payload.get("min_relevance_score", 0.18))
+        for memory, matches in candidates:
+            keyword_score = sum(weights[term] for term in matches) / total_weight
+            recency = 1 / max((now - memory.created_at).days + 1, 1)
+            score = keyword_score * 0.70 + memory.trust_score * 0.10 + memory.importance_score * 0.10 + recency * 0.10
+            if score >= min_relevance:
+                ranked.append((score, memory, 0.0, None))
+        return ranked
+
     def _query_terms(self, text):
         stop_words = {
             "a",
@@ -394,11 +421,15 @@ class MemoryService:
             "with",
         }
         terms = []
-        for raw in re.findall(r"[a-zA-Z0-9']+", (text or "").lower()):
-            term = raw.removesuffix("'s").strip("'")
+        for raw in re.findall(r"[\w']+", (text or "").lower(), flags=re.UNICODE):
+            term = self._normalize_query_term(raw.removesuffix("'s").strip("'"))
             if len(term) > 2 and term not in stop_words:
                 terms.append(term)
         return terms
+
+    def _normalize_query_term(self, term):
+        normalized = unicodedata.normalize("NFKD", term)
+        return "".join(char for char in normalized if not unicodedata.combining(char))
 
     def archive(self, memory, actor_id=None):
         memory.archived = True
