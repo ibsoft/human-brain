@@ -523,7 +523,7 @@ async function buildContext(){
     el("ctxOutput").textContent=JSON.stringify(data,null,2);
     el("ctxContextBlock").textContent=data.context || "No matching memories passed the current policy.";
     el("ctxContextBlock").classList.toggle("empty", !data.context);
-    el("ctxPolicyLabel").textContent=`${data.policy.sensitivity_policy}, blocks ${data.policy.blocked_levels.join(", ") || "none"}`;
+    el("ctxPolicyLabel").textContent=`${data.policy.sensitivity_policy}, ${data.policy.used_tokens}/${data.policy.max_tokens} tokens, blocks ${data.policy.blocked_levels.join(", ") || "none"}`;
     el("ctxMemoryCount").textContent=`${data.memories.length} memories`;
     el("ctxMemoryList").innerHTML=data.memories.map(memory=>`<div class="context-memory"><b>#${memory.id}</b><span>score ${memory.score}</span></div>`).join("") || '<div class="text-secondary">No memories selected.</div>';
   }catch(error){
