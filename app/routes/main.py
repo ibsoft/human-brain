@@ -82,8 +82,10 @@ def dashboard():
             trust_buckets["0.6-0.8"] += 1
         else:
             trust_buckets["0.8-1.0"] += 1
+    agent_names = {agent.id: agent.name for agent in Agent.query.all()}
     dashboard_charts = {
         "activity": activity_chart,
+        "agent_request_speed": AgentLogService().completed_request_duration_chart(agent_names=agent_names, hours=24),
         "types": {"labels": list(memory_types.keys()), "values": list(memory_types.values())},
         "sensitivity": {"labels": list(sensitivity.keys()), "values": list(sensitivity.values())},
         "workspaces": {"labels": list(workspace_counts.keys()), "values": list(workspace_counts.values())},

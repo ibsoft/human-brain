@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import current_app
@@ -56,6 +56,60 @@ class AgentLogService:
         start = max(page - 1, 0) * per_page
         return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
 
+    def completed_request_duration_chart(self, agent_names=None, hours=24):
+        agent_names = agent_names or {}
+        now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        buckets = [now - timedelta(hours=offset) for offset in range(hours - 1, -1, -1)]
+        bucket_keys = [bucket.strftime("%Y-%m-%dT%H:00:00") for bucket in buckets]
+        series = {}
+        cutoff = buckets[0]
+        for record in self._iter_records():
+            try:
+                status = int(record.get("status") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not (200 <= status < 400):
+                continue
+            agent_id = record.get("agent_id")
+            if agent_id in (None, ""):
+                continue
+            ts = self._parse_ts(record.get("ts"))
+            if not ts or ts < cutoff:
+                continue
+            duration_ms = self._record_duration_ms(record)
+            if duration_ms is None:
+                continue
+            bucket_key = ts.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:00:00")
+            if bucket_key not in bucket_keys:
+                continue
+            agent_key = str(agent_id)
+            agent_series = series.setdefault(
+                agent_key,
+                {"label": self._agent_label(agent_id, agent_names), "points": {}},
+            )
+            total, count = agent_series["points"].get(bucket_key, (0.0, 0))
+            agent_series["points"][bucket_key] = (total + duration_ms, count + 1)
+        datasets = []
+        for agent_key, agent_series in sorted(series.items(), key=lambda item: item[1]["label"]):
+            datasets.append(
+                {
+                    "label": agent_series["label"],
+                    "values": [
+                        round(total / count, 2) if count else None
+                        for total, count in (agent_series["points"].get(bucket_key, (0.0, 0)) for bucket_key in bucket_keys)
+                    ],
+                }
+            )
+        return {"labels": [bucket.strftime("%H:%M") for bucket in buckets], "datasets": datasets}
+
+    def _agent_label(self, agent_id, agent_names):
+        agent_key = str(agent_id)
+        if agent_key in agent_names:
+            return agent_names[agent_key]
+        if agent_key.isdigit() and int(agent_key) in agent_names:
+            return agent_names[int(agent_key)]
+        return f"Agent {agent_id}"
+
     def _decode_for_display(self, value):
         if isinstance(value, dict):
             return {key: self._decode_for_display(item) for key, item in value.items()}
@@ -69,6 +123,40 @@ class AgentLogService:
                 except ValueError:
                     return value
         return value
+
+    def _iter_records(self):
+        for path in sorted(self.log_dir.glob("agent_api*.jsonl"), reverse=True):
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    try:
+                        yield json.loads(line)
+                    except ValueError:
+                        continue
+
+    def _parse_ts(self, value):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+
+    def _record_duration_ms(self, record):
+        try:
+            if record.get("duration_ms") is not None:
+                return float(record["duration_ms"])
+        except (TypeError, ValueError):
+            return None
+        response = self._decode_for_display(record.get("response"))
+        if isinstance(response, dict):
+            timing = response.get("timing") or {}
+            for key in ("total_ms", "elapsed_ms"):
+                try:
+                    if timing.get(key) is not None:
+                        return float(timing[key])
+                except (TypeError, ValueError):
+                    continue
+        return None
 
     def _active_path(self):
         return self.log_dir / "agent_api.jsonl"

@@ -606,6 +606,7 @@ if(document.getElementById("activityChart")){
   const dashboardCharts=dashboardDataEl ? JSON.parse(dashboardDataEl.textContent) : {};
   const palette=["#38e88f","#9cffcb","#f2c94c","#ff8aa0","#7dd3fc","#d69cff","#f59e0b","#22c55e"];
   const chartOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:"#dcecff"}}},scales:{x:{ticks:{color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}},y:{beginAtZero:true,ticks:{precision:0,color:"#98b9aa"},grid:{color:"rgba(128,230,178,.12)"}}}};
+  const requestSpeedOptions={...chartOptions,scales:{...chartOptions.scales,y:{...chartOptions.scales.y,title:{display:true,text:"avg ms",color:"#98b9aa"}}}};
   const doughnutOptions={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom",labels:{color:"#dcecff",boxWidth:12}}}};
   const emptyPlugin={id:"emptyChart",afterDraw(chart){const values=chart.data.datasets.flatMap(dataset=>dataset.data||[]);if(values.some(value=>Number(value)>0)) return;const {ctx,chartArea}=chart;if(!chartArea) return;ctx.save();ctx.fillStyle="#74889e";ctx.font="13px system-ui";ctx.textAlign="center";ctx.fillText("No data yet",chartArea.left+chartArea.width/2,chartArea.top+chartArea.height/2);ctx.restore();}};
   const dataset=(key)=>dashboardCharts[key]||{labels:[],values:[]};
@@ -615,7 +616,18 @@ if(document.getElementById("activityChart")){
     const data=dataset(key);
     new Chart(target,{type,data:{labels:data.labels||[],datasets:[{label,data:data.values||[],borderColor:palette[0],backgroundColor:type==="line"?"rgba(56,232,143,.16)":palette,fill:type==="line",tension:.35}]},options,plugins:[emptyPlugin]});
   };
+  const buildMultiLine=(id,key,options=chartOptions)=>{
+    const target=document.getElementById(id);
+    if(!target) return;
+    const data=dataset(key);
+    const datasets=(data.datasets||[]).map((series,index)=>{
+      const color=palette[index%palette.length];
+      return {label:series.label,data:series.values||[],borderColor:color,backgroundColor:color,fill:false,tension:.3,spanGaps:true};
+    });
+    new Chart(target,{type:"line",data:{labels:data.labels||[],datasets},options,plugins:[emptyPlugin]});
+  };
   build("activityChart","line","activity","Memory writes");
+  buildMultiLine("agentRequestSpeedChart","agent_request_speed",requestSpeedOptions);
   build("typeChart","bar","types","Memories");
   build("sensitivityChart","doughnut","sensitivity","Memories",doughnutOptions);
   build("workspaceChart","bar","workspaces","Memories");

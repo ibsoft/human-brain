@@ -28,7 +28,7 @@ Flow:
 
 1. A memory is created.
 2. The embedding is generated and stored.
-3. The workspace FAISS index is rebuilt.
+3. The memory vector is upserted into the workspace FAISS index.
 4. `CorrelationService.correlate_memory(memory)` compares the new memory against recent memories in the same workspace.
 5. Strong enough matches are stored in `memory_correlations`.
 6. The Memory Graph page renders those edges.
@@ -43,7 +43,7 @@ This deletes existing correlations for the workspace and recalculates them from 
 
 ## Current Scoring Rules
 
-The current implementation is intentionally simple and explainable. It does not yet use embedding vector similarity for correlation strength. It uses deterministic metadata and text overlap rules.
+The current implementation is intentionally simple and explainable. It does not yet use memory embedding vector similarity for correlation strength. It uses deterministic metadata, text overlap rules, and compatible uploaded asset vectors.
 
 For every new memory, the service looks at up to 250 recent, non-deleted memories in the same workspace.
 
@@ -51,15 +51,24 @@ It calculates a score from:
 
 | Signal | Strength Added | Explanation |
 | --- | ---: | --- |
-| Shared tags | Up to `0.45` | `0.15` per shared tag, capped |
-| Same memory type | `0.20` | Example: both are `task` |
-| Same agent | `0.10` | Both memories belong to the same agent |
+| Shared tags | Up to `0.55` | `0.32` per shared non-generic tag, capped |
+| Same memory type | `0.08` | Example: both are `task` |
+| Same agent | `0.03` | Both memories belong to the same agent |
 | Same session | `0.25` | Both came from the same raw session |
 | Shared content terms | Up to `0.25` | `0.025` per shared keyword, capped |
+| Shared asset type | `0.12` | Both memories have assets of the same type |
+| Similar asset vectors | `0.35` | Best compatible asset vector cosine similarity is `>= 0.85` |
+| Related asset vectors | `0.20` | Best compatible asset vector cosine similarity is `>= 0.70` |
+| Shared asset metadata | Up to `0.12` | `0.03` per shared metadata keyword, capped |
+| Asset metadata matches text | Up to `0.18` | `0.04` per shared keyword between one memory's asset metadata and the other memory's text, capped |
 
 The final strength is capped at `1.0`.
 
 Only correlations with strength `>= 0.25` are stored.
+
+Same memory type and same agent can raise a score, but they are not enough by
+themselves. A stored correlation must have at least one meaningful signal:
+shared non-generic tags, same session, shared content terms, or asset evidence.
 
 ## Upload Boilerplate Is Ignored
 
@@ -78,8 +87,10 @@ Ignored generic tags include:
 - `pdf`
 - `docx`
 - `xlsx`
+- `xlsm`
 - `txt`
 - `log`
+- `md`
 - `jpg`
 - `jpeg`
 - `png`
@@ -87,19 +98,30 @@ Ignored generic tags include:
 
 Ignored boilerplate terms include:
 
+- `uploaded`
+- `upload`
 - `stored`
 - `path`
 - `local`
+- `file`
+- `files`
+- `image`
+- `images`
+- `document`
+- `documents`
 - `mime`
 - `type`
 - `bytes`
+- `kept`
 - `visual`
 - `vector`
 - `fingerprint`
 - `metadata`
+- `correlation`
 - `profile`
 - `dominant`
 - `color`
+- `content`
 - `extractable`
 - `requires`
 - `original`
@@ -109,6 +131,14 @@ This prevents irrelevant correlations such as an astronomy image correlating wit
 Image visual vectors are compared only with other compatible image vectors. They are not compared directly against document keyword vectors.
 
 Cross image-document correlation must come from real shared evidence, such as specific shared tags, meaningful shared terms, or useful asset metadata, not upload boilerplate.
+
+Asset correlation can add:
+
+- `0.12` for shared asset type, such as two image memories or two document memories
+- `0.35` for compatible asset vectors with cosine similarity `>= 0.85`
+- `0.20` for compatible asset vectors with cosine similarity `>= 0.70`
+- up to `0.12` for shared non-boilerplate asset metadata terms when asset types differ
+- up to `0.18` when one memory's asset metadata shares meaningful terms with the other memory's text
 
 ## Example
 
@@ -132,11 +162,11 @@ Content: Add nightly PostgreSQL backups.
 
 Possible score:
 
-- Shared tags: `deployment`, `database` -> `0.30`
+- Shared tags: `deployment`, `database` -> `0.55` because tag score caps at `0.55`
 - Shared term: `postgresql` -> `0.025`
 - Same workspace is required but does not add score
 
-Total: `0.325`
+Total: `0.575`
 
 The app stores a `related` correlation with an explanation like:
 
