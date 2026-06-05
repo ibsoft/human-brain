@@ -58,6 +58,12 @@ class AgentLogService:
         return {"items": rows[start : start + per_page], "total": total, "page": page, "per_page": per_page}
 
     def completed_request_duration_chart(self, agent_names=None, hours=24, timezone_name=None):
+        return self._completed_request_metric_chart("duration_ms", agent_names=agent_names, hours=hours, timezone_name=timezone_name)
+
+    def completed_request_tokens_chart(self, agent_names=None, hours=24, timezone_name=None):
+        return self._completed_request_metric_chart("tokens", agent_names=agent_names, hours=hours, timezone_name=timezone_name)
+
+    def _completed_request_metric_chart(self, metric, agent_names=None, hours=24, timezone_name=None):
         agent_names = agent_names or {}
         target_timezone = self._chart_timezone(timezone_name)
         now = datetime.now(target_timezone)
@@ -79,8 +85,8 @@ class AgentLogService:
             local_ts = self._to_timezone(ts, target_timezone)
             if local_ts < window_start or local_ts > now:
                 continue
-            duration_ms = self._record_duration_ms(record)
-            if duration_ms is None:
+            value = self._record_metric(record, metric)
+            if value is None:
                 continue
             agent_key = str(agent_id)
             agent_series = series.setdefault(
@@ -90,7 +96,7 @@ class AgentLogService:
             agent_series["points"].append(
                 {
                     "x": round((local_ts - window_start).total_seconds() / 60, 2),
-                    "y": round(duration_ms, 2),
+                    "y": round(value, 2),
                 }
             )
         datasets = []
@@ -105,9 +111,18 @@ class AgentLogService:
         return {
             "x_max": hours * 60,
             "start_minute_of_day": window_start.hour * 60 + window_start.minute,
+            "window_start": window_start.isoformat(),
             "point_count": point_count,
             "datasets": datasets,
         }
+
+    def estimate_record_tokens(self, record):
+        explicit = self._record_tokens(record, allow_estimate=False)
+        if explicit is not None:
+            return explicit
+        body_tokens = self._approx_tokens(record.get("body"))
+        response_tokens = self._approx_tokens(record.get("response"))
+        return body_tokens + response_tokens
 
     def _chart_timezone(self, timezone_name=None):
         if not timezone_name:
@@ -179,6 +194,53 @@ class AgentLogService:
                 except (TypeError, ValueError):
                     continue
         return None
+
+    def _record_metric(self, record, metric):
+        if metric == "duration_ms":
+            return self._record_duration_ms(record)
+        if metric == "tokens":
+            return self._record_tokens(record)
+        return None
+
+    def _record_tokens(self, record, allow_estimate=True):
+        for value in self._token_candidates(record):
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed >= 0:
+                return parsed
+        return self.estimate_record_tokens(record) if allow_estimate else None
+
+    def _token_candidates(self, record):
+        yield record.get("tokens")
+        yield record.get("total_tokens")
+        yield record.get("token_count")
+        for container in (record.get("usage"), record.get("body"), record.get("response")):
+            decoded = self._decode_for_display(container)
+            if not isinstance(decoded, dict):
+                continue
+            usage = decoded.get("usage") if isinstance(decoded.get("usage"), dict) else decoded
+            yield usage.get("total_tokens")
+            yield usage.get("tokens")
+            yield usage.get("token_count")
+            prompt = usage.get("prompt_tokens")
+            completion = usage.get("completion_tokens")
+            if prompt is not None or completion is not None:
+                try:
+                    yield float(prompt or 0) + float(completion or 0)
+                except (TypeError, ValueError):
+                    pass
+            policy = decoded.get("policy")
+            if isinstance(policy, dict):
+                yield policy.get("used_tokens")
+
+    def _approx_tokens(self, value):
+        decoded = self._decode_for_display(value)
+        if decoded in (None, ""):
+            return 0
+        text = json.dumps(decoded, ensure_ascii=False, default=str) if isinstance(decoded, (dict, list)) else str(decoded)
+        return max(len(text) // 4, 1) if text.strip() else 0
 
     def _active_path(self):
         return self.log_dir / "agent_api.jsonl"

@@ -127,6 +127,7 @@ def register_agent_api_logging(app):
             response_body = ""
             if response.content_type and ("json" in response.content_type or "text" in response.content_type):
                 response_body = response.get_data(as_text=True)[:4000]
+            log_service = AgentLogService()
             record.update(
                 {
                     "status": response.status_code,
@@ -135,8 +136,9 @@ def register_agent_api_logging(app):
                     "response": _api_log_payload(response_body),
                 }
             )
+            record["tokens"] = log_service.estimate_record_tokens(record)
             _capture_agent_session_exchange(record)
-            AgentLogService().write(record, level=level)
+            log_service.write(record, level=level)
         except Exception:
             app.logger.exception("Could not write agent API JSONL log")
         return response

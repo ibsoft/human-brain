@@ -17,10 +17,13 @@
   </div>
 </section>
 <section class="mt-4">
-  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Memory Writes</h2><span>last 7 days</span></div><div class="chart-box chart-box-wide"><canvas id="activityChart"></canvas></div></div>
+  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading dashboard-chart-heading"><h2>Memory Writes</h2><div class="dashboard-range-tabs" aria-label="Dashboard chart range">{% for key, item in chart_ranges.items() %}<a class="dashboard-range-tab {% if chart_range == key %}active{% endif %}" href="{{ url_for('main.dashboard', range=key) }}">{{ item.label }}</a>{% endfor %}</div></div><div class="chart-box chart-box-wide"><canvas id="activityChart"></canvas></div></div>
 </section>
 <section class="mt-4">
-  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Agent Request Speed</h2><span>completed requests, last 24 hours</span></div><div class="chart-box chart-box-wide"><canvas id="agentRequestSpeedChart"></canvas></div></div>
+  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Agent Request Speed</h2><span>completed requests, {{ chart_ranges[chart_range].label|lower }}</span></div><div class="chart-box chart-box-wide"><canvas id="agentRequestSpeedChart"></canvas></div></div>
+</section>
+<section class="mt-4">
+  <div class="panel panel-tall dashboard-wide-chart"><div class="panel-heading"><h2>Agent Request Tokens</h2><span>tokens per completed request, {{ chart_ranges[chart_range].label|lower }}</span></div><div class="chart-box chart-box-wide"><canvas id="agentRequestTokensChart"></canvas></div></div>
 </section>
 <section class="dashboard-chart-grid mt-4">
   <div class="panel chart-panel"><div class="panel-heading"><h2>Memory Types</h2><span>active</span></div><div class="chart-box"><canvas id="typeChart"></canvas></div></div>

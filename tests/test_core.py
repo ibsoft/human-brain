@@ -534,6 +534,40 @@ def test_agent_logs_keep_unicode_readable(app, tmp_path):
         assert logs["items"][0]["_detail"]["body"]["query"] == "Πες μου για την εικόνα"
 
 
+def test_agent_log_tokens_chart_uses_completed_requests(app, tmp_path):
+    with app.app_context():
+        service = AgentLogService()
+        service.log_dir = tmp_path
+        agent_id = app.config["TEST_AGENT_ID"]
+        rows = [
+            {
+                "ts": datetime.utcnow().isoformat(),
+                "level": "info",
+                "method": "POST",
+                "path": "/api/v1/context/build",
+                "status": 200,
+                "agent_id": agent_id,
+                "response": {"policy": {"used_tokens": 42}},
+            },
+            {
+                "ts": datetime.utcnow().isoformat(),
+                "level": "info",
+                "method": "POST",
+                "path": "/api/v1/context/build",
+                "status": 500,
+                "agent_id": agent_id,
+                "tokens": 99,
+            },
+        ]
+        (tmp_path / "agent_api.jsonl").write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+        chart = service.completed_request_tokens_chart(agent_names={agent_id: "Test Agent"}, hours=24, timezone_name="UTC")
+
+        assert chart["point_count"] == 1
+        assert chart["datasets"][0]["label"] == "Test Agent"
+        assert chart["datasets"][0]["points"][0]["y"] == 42
+
+
 def test_agent_logs_template_uses_display_timezone(app):
     with app.app_context():
         SettingsService.update({"display_timezone": "Europe/Athens"})
