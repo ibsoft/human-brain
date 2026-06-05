@@ -35,6 +35,74 @@ def utc_to_local(value, target_timezone):
     return value.astimezone(target_timezone)
 
 
+def dashboard_chart_range():
+    ranges = {
+        "day": {"label": "Day", "hours": 24},
+        "week": {"label": "Week", "hours": 24 * 7},
+        "month": {"label": "Month", "hours": 24 * 30},
+        "year": {"label": "Year", "hours": 24 * 365},
+    }
+    selected = request.args.get("range", "week").lower()
+    if selected not in ranges:
+        selected = "week"
+    return selected, ranges
+
+
+def memory_activity_chart(target_timezone, selected_range):
+    now = datetime.now(target_timezone)
+    if selected_range == "day":
+        window_start = now - timedelta(hours=23)
+        bucket_start = window_start.replace(minute=0, second=0, microsecond=0)
+        buckets = [bucket_start + timedelta(hours=offset) for offset in range(24)]
+        labels = [bucket.strftime("%H:%M") for bucket in buckets]
+        values = {bucket.isoformat(): 0 for bucket in buckets}
+        query_start = buckets[0].astimezone(timezone.utc).replace(tzinfo=None)
+        for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= query_start).all():
+            local_created = utc_to_local(memory.created_at, target_timezone).replace(minute=0, second=0, microsecond=0)
+            key = local_created.isoformat()
+            if key in values:
+                values[key] += 1
+        return {"labels": labels, "values": [values[bucket.isoformat()] for bucket in buckets]}
+
+    if selected_range == "year":
+        first_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        for _ in range(11):
+            year = first_month.year - (1 if first_month.month == 1 else 0)
+            month = 12 if first_month.month == 1 else first_month.month - 1
+            first_month = first_month.replace(year=year, month=month)
+        buckets = []
+        current = first_month
+        for _ in range(12):
+            buckets.append(current)
+            year = current.year + (1 if current.month == 12 else 0)
+            month = 1 if current.month == 12 else current.month + 1
+            current = current.replace(year=year, month=month)
+        labels = [bucket.strftime("%b") for bucket in buckets]
+        values = {bucket.strftime("%Y-%m"): 0 for bucket in buckets}
+        query_start = buckets[0].astimezone(timezone.utc).replace(tzinfo=None)
+        for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= query_start).all():
+            key = utc_to_local(memory.created_at, target_timezone).strftime("%Y-%m")
+            if key in values:
+                values[key] += 1
+        return {"labels": labels, "values": [values[bucket.strftime("%Y-%m")] for bucket in buckets]}
+
+    days = 30 if selected_range == "month" else 7
+    today = now.date()
+    chart_days = [today - timedelta(days=offset) for offset in range(days - 1, -1, -1)]
+    chart_start_local = datetime.combine(chart_days[0], time.min, tzinfo=target_timezone)
+    chart_start = chart_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    writes_by_day = {day.isoformat(): 0 for day in chart_days}
+    for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= chart_start).all():
+        key = utc_to_local(memory.created_at, target_timezone).date().isoformat()
+        if key in writes_by_day:
+            writes_by_day[key] += 1
+    label_format = "%d %b" if selected_range == "month" else "%a"
+    return {
+        "labels": [day.strftime(label_format) for day in chart_days],
+        "values": [writes_by_day[day.isoformat()] for day in chart_days],
+    }
+
+
 @main_bp.route("/")
 @login_required
 def dashboard():
@@ -63,19 +131,8 @@ def dashboard():
     top_tags = dict(sorted(top_tags.items(), key=lambda item: (-item[1], item[0]))[:20])
     target_timezone = display_timezone()
     timezone_name = getattr(target_timezone, "key", "UTC")
-    today = datetime.now(target_timezone).date()
-    chart_days = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
-    chart_start_local = datetime.combine(chart_days[0], time.min, tzinfo=target_timezone)
-    chart_start = chart_start_local.astimezone(timezone.utc).replace(tzinfo=None)
-    writes_by_day = {day.isoformat(): 0 for day in chart_days}
-    for memory in Memory.query.filter(Memory.deleted_at.is_(None), Memory.created_at >= chart_start).all():
-        key = utc_to_local(memory.created_at, target_timezone).date().isoformat()
-        if key in writes_by_day:
-            writes_by_day[key] += 1
-    activity_chart = {
-        "labels": [day.strftime("%a") for day in chart_days],
-        "values": [writes_by_day[day.isoformat()] for day in chart_days],
-    }
+    selected_range, chart_ranges = dashboard_chart_range()
+    activity_chart = memory_activity_chart(target_timezone, selected_range)
     memory_types = {}
     sensitivity = {}
     source_counts = {}
@@ -100,16 +157,29 @@ def dashboard():
         else:
             trust_buckets["0.8-1.0"] += 1
     agent_names = {agent.id: agent.name for agent in Agent.query.all()}
+    agent_log_service = AgentLogService()
+    chart_hours = chart_ranges[selected_range]["hours"]
     dashboard_charts = {
         "activity": activity_chart,
-        "agent_request_speed": AgentLogService().completed_request_duration_chart(agent_names=agent_names, hours=24, timezone_name=timezone_name),
+        "agent_request_speed": agent_log_service.completed_request_duration_chart(agent_names=agent_names, hours=chart_hours, timezone_name=timezone_name),
+        "agent_request_tokens": agent_log_service.completed_request_tokens_chart(agent_names=agent_names, hours=chart_hours, timezone_name=timezone_name),
         "types": {"labels": list(memory_types.keys()), "values": list(memory_types.values())},
         "sensitivity": {"labels": list(sensitivity.keys()), "values": list(sensitivity.values())},
         "workspaces": {"labels": list(workspace_counts.keys()), "values": list(workspace_counts.values())},
         "trust": {"labels": list(trust_buckets.keys()), "values": list(trust_buckets.values())},
         "sources": {"labels": list(source_counts.keys()), "values": list(source_counts.values())},
     }
-    return render_template("dashboard.html", stats=stats, job_stats=job_stats, recent=recent, top_tags=top_tags, workspace_id=workspace_id, dashboard_charts=dashboard_charts)
+    return render_template(
+        "dashboard.html",
+        stats=stats,
+        job_stats=job_stats,
+        recent=recent,
+        top_tags=top_tags,
+        workspace_id=workspace_id,
+        dashboard_charts=dashboard_charts,
+        chart_range=selected_range,
+        chart_ranges=chart_ranges,
+    )
 
 
 @main_bp.route("/memories")
