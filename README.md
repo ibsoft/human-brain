@@ -2,6 +2,12 @@
 
 `Human-Brain` is a local/private long-term memory platform for AI agents. It stores short-term, episodic, long-term, task, project, preference, security-sensitive, archived, deleted/forgotten, and optional vision memories with workspace isolation, API-key controlled agent access, audit trails, semantic retrieval, session consolidation, and configurable privacy controls.
 
+<img width="1920" height="917" alt="image" src="https://github.com/user-attachments/assets/c2637557-797d-4468-9fba-1a1cee0cd233" />
+<img width="1915" height="908" alt="image" src="https://github.com/user-attachments/assets/507f9254-7162-4f89-870e-96fdd6f53769" />
+<img width="1918" height="910" alt="image" src="https://github.com/user-attachments/assets/f9acf429-42c7-47de-a78f-3bccc8848281" />
+<img width="1920" height="913" alt="image" src="https://github.com/user-attachments/assets/5209d451-bcd4-459b-9144-298be7e3b77a" />
+
+
 ## Architecture
 
 - Flask app factory with SQLAlchemy models, Alembic migrations, Flask-Login, CSRF, secure headers, and rate limiting.
