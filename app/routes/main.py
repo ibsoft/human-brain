@@ -8,6 +8,7 @@ from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.models import Agent, ApiKey, AuditLog, ConsolidationJob, HealthCheckRun, Memory, MemoryAsset, MemoryCorrelation, Session, Workspace, WorkspaceAgent
+from app.models.versioning import annotate_record_versions
 from app.security.rbac import minimum_role, role_required
 from app.services.admin_service import AdminService
 from app.services.backup_service import BackupService
@@ -122,7 +123,7 @@ def dashboard():
         "completed": ConsolidationJob.query.filter_by(status="completed").count(),
         "failed": ConsolidationJob.query.filter_by(status="failed").count(),
     }
-    recent = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(8).all()
+    recent = annotate_record_versions(Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(8).all(), "memories")
     top_tags = {}
     active_memories = Memory.query.filter(Memory.deleted_at.is_(None)).all()
     for memory in active_memories[:500]:
@@ -187,6 +188,7 @@ def dashboard():
 def memories():
     page = request.args.get("page", 1, type=int)
     pagination = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).paginate(page=page, per_page=25, error_out=False)
+    annotate_record_versions(pagination.items, "memories")
     return render_template("memories.html", memories=pagination.items, pagination=pagination, agents=Agent.query.all(), workspaces=Workspace.query.all(), enable_bulk_actions=True)
 
 
@@ -391,7 +393,7 @@ def edit_agent(agent_id):
 @login_required
 def agent_passport(agent_id):
     agent = db.session.get(Agent, agent_id)
-    memories = Memory.query.filter_by(agent_id=agent_id).filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(20).all()
+    memories = annotate_record_versions(Memory.query.filter_by(agent_id=agent_id).filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).limit(20).all(), "memories")
     tags = {}
     trust = 0
     for memory in memories:
@@ -593,6 +595,7 @@ def graph():
 def forget_center():
     page = request.args.get("page", 1, type=int)
     pagination = Memory.query.filter(Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).paginate(page=page, per_page=25, error_out=False)
+    annotate_record_versions(pagination.items, "memories")
     return render_template("forget_center.html", memories=pagination.items, pagination=pagination)
 
 
@@ -602,6 +605,7 @@ def sensitive_review():
     page = request.args.get("page", 1, type=int)
     pagination = Memory.query.filter(Memory.sensitivity_level.in_(["high", "secret"]), Memory.deleted_at.is_(None)).order_by(Memory.created_at.desc()).paginate(page=page, per_page=25, error_out=False)
     memories = pagination.items
+    annotate_record_versions(memories, "memories")
     stats = {
         "total": len(memories),
         "pending": sum(1 for memory in memories if memory.pending_approval),

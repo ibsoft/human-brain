@@ -4,6 +4,7 @@ from app.models.health import HealthCheckRun
 from app.models.memory import Memory, MemoryAccessLog, MemoryAsset, MemoryCorrelation, MemoryEmbedding, MemoryVector
 from app.models.session import ConsolidationJob, Session, SessionMessage
 from app.models.user import User
+from app.models.versioning import RecordVersion
 from app.models.vision import VisionEvent
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "MemoryCorrelation",
     "MemoryEmbedding",
     "MemoryVector",
+    "RecordVersion",
     "Session",
     "SessionMessage",
     "User",

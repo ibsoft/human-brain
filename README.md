@@ -17,6 +17,7 @@
 - Redis + Celery run consolidation, FAISS rebuild, duplicate detection, trust scoring, expiration, backup, snapshot cleanup, and reports.
 - Vision is a separate module. Camera access, snapshots, active model, backend, and available models are controlled on the Settings page. The initial model is `models/yolov8n.pt`, and additional Ultralytics YOLO models or local paths can be listed there.
 - Memory correlation creates workspace-scoped graph edges between related memories. See `docs/MEMORY_CORRELATION.md`.
+- Generic row versioning records insert and update snapshots for all SQLAlchemy models in the `record_versions` table. Memory responses expose `current_version`, and the Memories UI shows the latest version number.
 - Model operation guidance lives in `docs/models/SKILL.md`.
 - Agent API protocol and retrieval behavior are documented in `docs/AGENT_API_PROTOCOL.md`.
 - A ready-to-use agent skill lives in `docs/agents/SKILL.md`.
@@ -495,6 +496,41 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/add" \
   }'
 ```
 
+The response includes the stored memory and its latest version number:
+
+```json
+{
+  "memory": {
+    "id": 123,
+    "current_version": 1,
+    "title": "Deployment choice"
+  },
+  "duplicate": false
+}
+```
+
+Update a memory:
+
+```bash
+curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/update" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY" \
+  -d '{
+    "id": 123,
+    "agent_id": 1,
+    "content": "The project uses PostgreSQL in production and SQLite only for local development. Redis is the Celery broker."
+  }'
+```
+
+Every insert or update creates a version row. Fetch memory version history:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/123/versions?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+The version history response returns `versions[]` from `record_versions`, ordered by `version_number`. Each item includes `event`, `data`, `changed_fields`, and `created_at`. In the web UI, the memory tables show the latest version as `v1`, `v2`, and so on.
+
 Upload a document as one memory:
 
 ```bash
@@ -894,6 +930,21 @@ The Backups page can create, download, restore, and delete local backup archives
 ## Agent Logs And Jobs
 
 Settings can enable rotated JSONL agent API logging. Logs are stored under `logs/agent_api/` and are visible in the Agent Logs page with pagination, search, and detail modals. Each entry records the API path, method, agent id, request payload or uploaded filenames, response payload, and status.
+
+## Record Versioning
+
+Human-Brain keeps an append-only version trail in `record_versions` for inserts and updates across the application models. Each version stores:
+
+- `table_name` and `record_id`
+- `version_number`
+- `event` such as `inserted` or `updated`
+- `data`, a JSON snapshot of the row after the change
+- `changed_fields`
+- `created_at`
+
+Memory records surface this as `current_version` in API payloads and as a Version column in memory tables. Full memory history is available at `/api/v1/memory/<memory_id>/versions?workspace_id=<workspace_id>`.
+
+Because snapshots are full row data, protect database backups and exports according to the sensitivity of the underlying tables.
 
 Dashboard Jobs are background worker records for operations such as session consolidation. Agents can inspect their jobs with `/api/v1/jobs`; operators can use the dashboard to monitor queued, running, completed, and failed jobs.
 

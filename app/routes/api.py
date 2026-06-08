@@ -1,7 +1,7 @@
 from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from app.extensions import db, limiter
-from app.models import ConsolidationJob, Memory, MemoryVector, Session
+from app.models import ConsolidationJob, Memory, MemoryVector, RecordVersion, Session
 from app.security.auth import require_api_key, require_workspace_access
 from app.services.context_service import ContextService, confirm_memory
 from app.services.document_service import DocumentIngestionService
@@ -219,14 +219,12 @@ def memory_update():
     if not memory:
         abort(404, description="Memory not found")
     require_workspace_access(payload.get("agent_id"), memory.workspace_id)
-    for field in ("title", "content", "summary", "tags", "importance_score", "trust_score", "sensitivity_level", "visibility"):
-        if field in payload:
-            setattr(memory, field, payload[field])
-    db.session.commit()
+    changed = MemoryService().update_memory(memory, payload, actor_id=payload.get("agent_id"))
     if "content" in payload:
-        memory.content_hash = sha256_text(memory.content.strip())
         embeddings = EmbeddingService(current_app.config["EMBEDDING_MODEL"])
         FaissService(current_app.config["FAISS_INDEX_DIR"]).upsert_memory(memory, embeddings)
+    if changed:
+        db.session.commit()
     return jsonify({"memory": serialize_memory(memory)})
 
 
@@ -276,6 +274,7 @@ def memory_merge():
         abort(404, description="Memory not found")
     require_workspace_access(payload.get("agent_id"), primary.workspace_id)
     primary.content = f"{primary.content}\n\nMerged note:\n{secondary.content}"
+    primary.content_hash = sha256_text(primary.content.strip())
     primary.trust_score = min(1.0, max(primary.trust_score, secondary.trust_score) + 0.05)
     secondary.archived = True
     db.session.commit()
@@ -301,6 +300,30 @@ def memory_get(memory_id):
     require_workspace_access(agent_id, workspace_id)
     memory = Memory.query.filter_by(id=memory_id, workspace_id=workspace_id).first_or_404()
     return jsonify({"memory": serialize_memory(memory)})
+
+
+@api_bp.get("/memory/<int:memory_id>/versions")
+@require_api_key
+def memory_versions(memory_id):
+    workspace_id = request.args.get("workspace_id", type=int)
+    agent_id = g.agent.id
+    require_workspace_access(agent_id, workspace_id)
+    memory = Memory.query.filter_by(id=memory_id, workspace_id=workspace_id).first_or_404()
+    versions = RecordVersion.query.filter_by(table_name="memories", record_id=str(memory.id)).order_by(RecordVersion.version_number.asc()).all()
+    return jsonify({"memory": serialize_memory(memory, include_assets=False), "versions": [serialize_record_version(version) for version in versions]})
+
+
+def serialize_record_version(version):
+    return {
+        "id": version.id,
+        "table_name": version.table_name,
+        "record_id": version.record_id,
+        "version_number": version.version_number,
+        "event": version.event,
+        "data": version.data,
+        "changed_fields": version.changed_fields,
+        "created_at": version.created_at.isoformat() if version.created_at else None,
+    }
 
 
 @api_bp.get("/memory/<int:memory_id>/correlations")

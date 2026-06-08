@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import render_template
 
 from app.extensions import db
-from app.models import Agent, AuditLog, HealthCheckRun, Memory, MemoryAsset, MemoryCorrelation, SessionMessage, User, Workspace
+from app.models import Agent, AuditLog, HealthCheckRun, Memory, MemoryAsset, MemoryCorrelation, RecordVersion, SessionMessage, User, Workspace
 from app.services.agent_log_service import AgentLogService
 from app.services.backup_service import BackupService
 from app.services.correlation_service import CorrelationService
@@ -139,6 +139,40 @@ def test_first_run_setup_creates_admin(client, app):
 def test_api_key_required(client):
     res = client.post("/api/v1/memory/add", json={})
     assert res.status_code == 401
+
+
+def test_record_versions_are_created_for_inserts_and_updates(app):
+    with app.app_context():
+        workspace = Workspace(name="Versioned workspace", description="first")
+        db.session.add(workspace)
+        db.session.commit()
+
+        inserted = RecordVersion.query.filter_by(table_name="workspaces", record_id=str(workspace.id), version_number=1).one()
+        assert inserted.event == "inserted"
+        assert inserted.data["name"] == "Versioned workspace"
+
+        workspace.description = "second"
+        db.session.commit()
+
+        updated = RecordVersion.query.filter_by(table_name="workspaces", record_id=str(workspace.id), version_number=2).one()
+        assert updated.event == "updated"
+        assert updated.data["description"] == "second"
+        assert updated.changed_fields == ["description"]
+
+
+def test_memory_add_response_includes_current_version(client, app, api_headers):
+    res = client.post(
+        "/api/v1/memory/add",
+        json={
+            "agent_id": app.config["TEST_AGENT_ID"],
+            "workspace_id": app.config["TEST_WORKSPACE_ID"],
+            "content": "Memory version should be visible.",
+            "memory_type": "facts",
+        },
+        headers=api_headers,
+    )
+    assert res.status_code == 201
+    assert res.get_json()["memory"]["current_version"] == 1
 
 
 def test_web_admin_create_workspace_agent_and_key(client):
