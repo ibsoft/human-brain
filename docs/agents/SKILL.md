@@ -142,6 +142,8 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/add" \
   }'
 ```
 
+Human-Brain creates memory versions automatically. Agents do not send version numbers. Inspect `memory.current_version` in add, get, update, upload, and search responses when you need the latest version number.
+
 Recommended memory types:
 
 - `facts`: stable factual information
@@ -183,6 +185,15 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/update" \
     "trust_score": 0.95
   }'
 ```
+
+Updating a memory automatically appends a new version snapshot. To inspect full memory history:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/123/versions?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+Use version history when the user asks what changed, when resolving conflicting memories, or before replacing important project/task/security-sensitive context. The response contains `versions[]` ordered by `version_number`, with `event`, `data`, `changed_fields`, and `created_at`.
 
 Confirm a pending memory:
 
@@ -441,7 +452,7 @@ Multipart fields:
 - `ingest_mode`: `full` or `chunks`.
 - `chunk_size`: character count for document chunks; default `4000`.
 
-The response returns `count` and `memories[]`. Each returned memory includes `assets[]` with tokenized `url` values. Use those URLs when the user or a remote agent needs to inspect the original file or image.
+The response returns `count` and `memories[]`. Each returned memory includes `current_version` and `assets[]` with tokenized `url` values. Use those URLs when the user or a remote agent needs to inspect the original file or image.
 
 If `assets[].url` points to an internal host such as `127.0.0.1`, report that an operator must set Settings -> Public base URL or `.env` `HUMAN_BRAIN_URL` to the external reverse-proxy URL.
 
@@ -454,7 +465,7 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
   -F "file=@/path/to/replacement.pdf"
 ```
 
-Replacement keeps the memory ID and tokenized asset URL stable, replaces the stored file, refreshes extracted text or image metadata, refreshes vectors, and reruns correlations. Use this instead of uploading a second memory when the original file is being corrected or superseded. For chunked documents, replacement updates one existing chunk memory; upload a new chunked document if the document needs to be split again.
+Replacement keeps the memory ID and tokenized asset URL stable, replaces the stored file, refreshes extracted text or image metadata, refreshes vectors, creates a new version snapshot, and reruns correlations. Use this instead of uploading a second memory when the original file is being corrected or superseded. For chunked documents, replacement updates one existing chunk memory; upload a new chunked document if the document needs to be split again.
 
 Agents can retrieve and reason over resulting memory assets through search results and memory serialization:
 
@@ -522,7 +533,7 @@ When answering:
 2. User asks a question: search first.
 3. Results are insufficient: say no stored memory was found, then ask or proceed from current input.
 4. Task is complex: build context.
-5. User gives new durable info: add or update memory, then inspect `quality` and `agent_policy` in the response.
+5. User gives new durable info: add or update memory, then inspect `memory.current_version`, `quality`, and `agent_policy` in the response.
 6. User corrects old info: search, update/archive old memory, add corrected memory if needed.
 7. User asks to forget: search, confirm target, call forget.
 8. Multi-turn task: start session, add key messages, end, consolidate.

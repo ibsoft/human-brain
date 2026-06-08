@@ -9,6 +9,7 @@ from sqlalchemy import or_
 
 from app.extensions import db
 from app.models import Memory, MemoryAsset, MemoryCorrelation, MemoryEmbedding, MemoryVector
+from app.models.versioning import current_record_version
 from app.repositories.memory_repository import MemoryRepository
 from app.services.audit_service import AuditService
 from app.services.embedding_service import EmbeddingService
@@ -20,6 +21,21 @@ from app.utils.hash import sha256_text
 
 
 class MemoryService:
+    VERSIONED_FIELDS = (
+        "title",
+        "content",
+        "summary",
+        "memory_type",
+        "tags",
+        "importance_score",
+        "trust_score",
+        "sensitivity_level",
+        "visibility",
+        "content_hash",
+        "source",
+        "storage_reason",
+    )
+
     def __init__(self):
         self.repo = MemoryRepository()
         self.embedding_service = EmbeddingService(SettingsService.get("embedding_model", current_app.config["EMBEDDING_MODEL"]))
@@ -80,6 +96,25 @@ class MemoryService:
         except Exception:
             current_app.logger.exception("Could not correlate memory after create")
         return memory, False
+
+    def update_memory(self, memory, payload, actor_type="agent", actor_id=None):
+        changed = False
+        for field in self.VERSIONED_FIELDS:
+            if field not in payload:
+                continue
+            value = payload[field]
+            if getattr(memory, field) != value:
+                setattr(memory, field, value)
+                changed = True
+        if "content" in payload:
+            content_hash = sha256_text(memory.content.strip())
+            if memory.content_hash != content_hash:
+                memory.content_hash = content_hash
+                changed = True
+        if changed:
+            memory.updated_at = datetime.utcnow()
+            AuditService.log("memory.updated", actor_type, actor_id, memory.workspace_id, "memory", memory.id)
+        return changed
 
     def search(self, payload, semantic=True):
         started = perf_counter()
@@ -505,6 +540,7 @@ def serialize_memory(memory, include_assets=True):
         "confirmed": memory.confirmed,
         "pending_approval": memory.pending_approval,
         "storage_reason": memory.storage_reason,
+        "current_version": getattr(memory, "current_version", None) or current_record_version("memories", memory.id),
         "assets": [serialize_asset(asset) for asset in assets],
     }
 

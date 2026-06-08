@@ -74,6 +74,7 @@ Recommended request:
 Response fields:
 
 - `memory`: full memory record
+- `memory.current_version`: latest automatic version number for the memory
 - `relevance_score`: final hybrid ranking score
 - `semantic_score`: FAISS/vector score
 - `vector_score`: same score exposed explicitly for agents
@@ -94,6 +95,38 @@ Agents should use:
 6. `timing.elapsed_ms` to monitor retrieval latency.
 
 Compact agent search results include `assets[]` when a memory has uploaded assets. When the user asks to see an uploaded image or document again, use `assets[].url`; do not answer with only the stored text description.
+
+## Memory Version Protocol
+
+Human-Brain versions memory inserts and updates automatically. Agents must not provide version numbers when adding, updating, uploading, replacing, merging, archiving, deleting, or forgetting memories.
+
+Memory payloads returned through normal serialization include:
+
+- `current_version`: latest version number for that memory.
+
+Fetch full memory history when the user asks what changed, when resolving conflicts, or before replacing important memory content:
+
+```http
+GET /api/v1/memory/{memory_id}/versions?workspace_id=1
+```
+
+Use `$HUMAN_BRAIN_URL/api/v1/memory/{memory_id}/versions?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID` over HTTP:
+
+```bash
+curl "$HUMAN_BRAIN_URL/api/v1/memory/123/versions?workspace_id=$HUMAN_BRAIN_WORKSPACE_ID" \
+  -H "X-API-Key: $HUMAN_BRAIN_API_KEY"
+```
+
+The response includes:
+
+- `memory`: current memory record, including `current_version`
+- `versions[]`: version snapshots ordered by `version_number`
+- `versions[].event`: `inserted` or `updated`
+- `versions[].data`: JSON snapshot after that change
+- `versions[].changed_fields`: changed column names for update events
+- `versions[].created_at`: version timestamp
+
+The backing store is the generic `record_versions` table. It records insert and update snapshots for all application models, but the agent-facing public history endpoint is memory-specific.
 
 ## Correlation Protocol
 
@@ -219,7 +252,7 @@ Common multipart fields:
 - `ingest_mode`: `full` or `chunks`.
 - `chunk_size`: characters per chunk when `ingest_mode=chunks`; default `4000`.
 
-The response contains `count` and `memories[]`. Each memory includes `assets[]`; use `assets[].url` to open the tokenized file/image URL from remote clients. Operators should configure Settings -> Public base URL, or `.env` `HUMAN_BRAIN_URL`, to the externally reachable reverse-proxy URL.
+The response contains `count` and `memories[]`. Each memory includes `current_version` and `assets[]`; use `assets[].url` to open the tokenized file/image URL from remote clients. Operators should configure Settings -> Public base URL, or `.env` `HUMAN_BRAIN_URL`, to the externally reachable reverse-proxy URL.
 
 Replace the actual uploaded file for an existing document/image memory:
 
@@ -236,7 +269,7 @@ curl -X POST "$HUMAN_BRAIN_URL/api/v1/memory/123/asset/replace" \
   -F "file=@/path/to/replacement.pdf"
 ```
 
-The replacement endpoint keeps the existing memory ID and tokenized asset URL, replaces the stored file, refreshes extracted text or image metadata, refreshes asset vectors and FAISS memory vectors, and reruns correlations. Use `title` or `tags` multipart fields to update those memory fields during replacement. Do not use `ingest_mode=chunks` for replacement; upload a new chunked document when chunk boundaries need to change.
+The replacement endpoint keeps the existing memory ID and tokenized asset URL, replaces the stored file, refreshes extracted text or image metadata, refreshes asset vectors and FAISS memory vectors, appends a new version snapshot, and reruns correlations. Use `title` or `tags` multipart fields to update those memory fields during replacement. Do not use `ingest_mode=chunks` for replacement; upload a new chunked document when chunk boundaries need to change.
 
 ## Sessions and Jobs
 
